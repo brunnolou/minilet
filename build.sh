@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 brunnolou
+# Distributed without warranty. See LICENSE.md and NOTICE.
 set -euo pipefail
 cd "$(dirname "$0")"
 INSTALL=false
@@ -54,6 +57,9 @@ mkdir -p "$STAGED_APP/Contents/MacOS" "$STAGED_APP/Contents/Resources"
 cp .build/Minilet "$STAGED_APP/Contents/MacOS/Minilet"
 cp Info.plist "$STAGED_APP/Contents/Info.plist"
 cp LICENSE.md "$STAGED_APP/Contents/Resources/LICENSE.md"
+cp NOTICE "$STAGED_APP/Contents/Resources/NOTICE"
+VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)
+printf 'Corresponding source and build instructions for Minilet %s:\nhttps://github.com/brunnolou/minilet/releases/tag/v%s\nDownload the matching source archive alongside the app ZIP.\n' "$VERSION" "$VERSION" > "$STAGED_APP/Contents/Resources/SOURCE.txt"
 iconutil -c icns "$ICONSET" -o "$STAGED_APP/Contents/Resources/Minilet.icns"
 plutil -lint "$STAGED_APP/Contents/Info.plist"
 codesign --force --sign - "$STAGED_APP"

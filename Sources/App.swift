@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 brunnolou
+// Distributed without warranty. See LICENSE.md and NOTICE.
+
 import AppKit
 
 func shellQuote(_ value: String) -> String {
@@ -93,6 +97,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showWelcome() { welcomeController.present() }
     @objc private func openSupport() { NSWorkspace.shared.open(MiniletLinks.support) }
+    @objc private func openSource() { NSWorkspace.shared.open(MiniletLinks.source) }
+    @objc private func openLicense() {
+        let url = Bundle.main.url(forResource: "LICENSE", withExtension: "md") ?? MiniletLinks.license
+        NSWorkspace.shared.open(url)
+    }
 
     private func createMenu() {
         menu.autoenablesItems = false
@@ -165,6 +174,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         supportItem.image = NSImage(systemSymbolName: "cup.and.saucer", accessibilityDescription: nil)
         supportItem.toolTip = MiniletLinks.support.absoluteString
         menu.addItem(supportItem)
+        let licenseItem = NSMenuItem(title: "License and source", action: nil, keyEquivalent: "")
+        licenseItem.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: nil)
+        let licenseMenu = NSMenu()
+        licenseMenu.autoenablesItems = false
+        for title in ["Copyright 2026 brunnolou", "GNU GPL v3.0 · No warranty", "Redistribution permitted under GPL v3.0"] {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            licenseMenu.addItem(item)
+        }
+        licenseMenu.addItem(.separator())
+        let readLicense = NSMenuItem(title: "Read license…", action: #selector(openLicense), keyEquivalent: "")
+        readLicense.target = self
+        licenseMenu.addItem(readLicense)
+        let sourceItem = NSMenuItem(title: "Source code…", action: #selector(openSource), keyEquivalent: "")
+        sourceItem.target = self
+        licenseMenu.addItem(sourceItem)
+        licenseItem.submenu = licenseMenu
+        menu.addItem(licenseItem)
         let quitItem = NSMenuItem(title: "Quit and restore automatic", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
@@ -416,6 +443,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         check(menu.items.contains { $0.action == #selector(showWelcome) && $0.target === self }, "Menu can reopen the welcome window")
         check(menu.items.contains { $0.action == #selector(openSupport) && $0.target === self }, "Menu can open the support link")
         check(!applicationShouldTerminateAfterLastWindowClosed(NSApp), "Closing welcome must not quit the menu-bar app")
+        let legal = menu.items.first { $0.title == "License and source" }?.submenu
+        check(legal?.items.contains { $0.title == "GNU GPL v3.0 · No warranty" } == true, "Menu must display licensing and warranty notices")
+        check(legal?.items.contains { $0.action == #selector(openLicense) && $0.target === self } == true, "License must be accessible from the menu")
+        check(legal?.items.contains { $0.action == #selector(openSource) && $0.target === self } == true, "Source must be accessible from the menu")
         checks += WelcomeWindowController.runSelfTest()
         NSStatusBar.system.removeStatusItem(statusItem)
         print("\(checks) native menu and welcome checks passed")

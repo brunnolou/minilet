@@ -6,17 +6,18 @@ A native macOS menu-bar fan controller for Apple Silicon Macs with fans. Presets
 for fixed speeds, live temperature and RPM readings, and a temperature-driven Guard.
 Built with Swift and AppKit, without third-party dependencies.
 
-Source-available under the [Minilet Noncommercial License](LICENSE.md). Commercial
-use, resale, fees and payment or donation requests for copies or forks are prohibited.
-These custom terms are not an open-source license.
+Open source under the [GNU General Public License v3.0](LICENSE.md),
+`GPL-3.0-only`. Commercial use and resale are permitted under the GPL's terms.
 
 Tested on one Apple Silicon Mac. Other models have not been verified.
 
 ## Download
 
 Get the app ZIP from [GitHub Releases](https://github.com/brunnolou/minilet/releases).
-Extract it, move `Minilet.app` to your Applications folder, and open it. The initial
-release is a preview for Apple Silicon Macs with fans, running macOS 13 or newer.
+Extract it, move `Minilet.app` to your Applications folder, and open it. Releases
+are previews for Apple Silicon Macs with fans, running macOS 13 or newer.
+Each GPL release includes its matching source ZIP and build instructions.
+Version 0.1.1 and later use GPL v3.0; the historical 0.1.0 preview used different terms.
 
 The app is ad-hoc signed, not notarized. macOS may require approval in System
 Settings > Privacy & Security. Only approve the app if you trust its source.
@@ -171,7 +172,7 @@ Run just the tests:
 ./build.sh --test
 ```
 
-There are 693 controller/IPC checks and 50 native menu/welcome checks. They run without
+There are 693 controller/IPC checks and 53 native menu/welcome checks. They run without
 fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
@@ -183,14 +184,19 @@ connections clear the nonblocking flag inherited from a macOS listener.
 
 ## License and support
 
-Read [LICENSE.md](LICENSE.md) for the full terms. Noncommercial use, modification
-and free redistribution are permitted subject to those terms. Commercial use,
-resale, charging fees, and requesting payments, donations or sponsorships for copies
-or forks are not permitted without a separate written agreement from the author.
-The license is included in app bundles and ZIP distributions.
+Copyright 2026 brunnolou. Licensed under GNU GPL v3.0 only. Read [LICENSE.md](LICENSE.md)
+for the full terms and [NOTICE](NOTICE) for the project notice.
 
-The copyright holder retains their own rights, including accepting support.
-Unchanged links that send support directly to the original author may be retained;
-they cannot be replaced with fundraising links for a fork.
+Commercial use, resale and donations are allowed. If you distribute Minilet or
+modified versions, you must comply with the GPL, including preserving notices,
+providing the corresponding source, and licensing covered modifications under
+GPL v3.0. There are no added noncommercial or donation restrictions.
+
+The app's "License and source" submenu displays copyright and warranty notices,
+opens the included license, and links to the source repository. App bundles
+include the full license, project notice and matching-release source location.
+GitHub releases provide the corresponding source ZIP alongside the app ZIP.
+
+Minilet comes without warranty. Donations support the author but are not required.
 
 [Buy me a coffee](https://buymeacoffee.com/brunnolou)

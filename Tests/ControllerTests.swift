@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 brunnolou
+// Distributed without warranty. See LICENSE.md and NOTICE.
+
 var checks = 0
 func check(_ condition: Bool, _ message: String) {
     checks += 1

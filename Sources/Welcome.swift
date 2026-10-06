@@ -1,7 +1,13 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 brunnolou
+// Distributed without warranty. See LICENSE.md and NOTICE.
+
 import AppKit
 
 enum MiniletLinks {
     static let support = URL(string: "https://buymeacoffee.com/brunnolou")!
+    static let source = URL(string: "https://github.com/brunnolou/minilet")!
+    static let license = URL(string: "https://github.com/brunnolou/minilet/blob/main/LICENSE.md")!
 }
 
 final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
