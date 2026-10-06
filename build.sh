@@ -28,8 +28,10 @@ mkdir -p .build
 python3 - <<'PY'
 from pathlib import Path
 shared = ['Sources/Hardware.swift', 'Sources/Control.swift', 'Sources/Worker.swift']
-for name, entry in [('main.swift', 'Sources/App.swift'), ('test-main.swift', 'Tests/ControllerTests.swift')]:
-    Path('.build', name).write_text('\n'.join(Path(f).read_text() for f in shared + [entry]))
+entries = [('main.swift', ['Sources/Welcome.swift', 'Sources/App.swift']),
+           ('test-main.swift', ['Tests/ControllerTests.swift'])]
+for name, files in entries:
+    Path('.build', name).write_text('\n'.join(Path(f).read_text() for f in shared + files))
 PY
 TARGET="$(uname -m)-apple-macosx13.0"
 swiftc -swift-version 5 -target "$TARGET" .build/test-main.swift -framework IOKit -o .build/control-tests
@@ -51,6 +53,7 @@ rm -rf "$STAGED_APP"
 mkdir -p "$STAGED_APP/Contents/MacOS" "$STAGED_APP/Contents/Resources"
 cp .build/Minilet "$STAGED_APP/Contents/MacOS/Minilet"
 cp Info.plist "$STAGED_APP/Contents/Info.plist"
+cp LICENSE.md "$STAGED_APP/Contents/Resources/LICENSE.md"
 iconutil -c icns "$ICONSET" -o "$STAGED_APP/Contents/Resources/Minilet.icns"
 plutil -lint "$STAGED_APP/Contents/Info.plist"
 codesign --force --sign - "$STAGED_APP"

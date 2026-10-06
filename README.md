@@ -6,7 +6,20 @@ A native macOS menu-bar fan controller for Apple Silicon Macs with fans. Presets
 for fixed speeds, live temperature and RPM readings, and a temperature-driven Guard.
 Built with Swift and AppKit, without third-party dependencies.
 
+Source-available under the [Minilet Noncommercial License](LICENSE.md). Commercial
+use, resale, fees and payment or donation requests for copies or forks are prohibited.
+These custom terms are not an open-source license.
+
 Tested on one Apple Silicon Mac. Other models have not been verified.
+
+## Download
+
+Get the app ZIP from [GitHub Releases](https://github.com/brunnolou/minilet/releases).
+Extract it, move `Minilet.app` to your Applications folder, and open it. The initial
+release is a preview for Apple Silicon Macs with fans, running macOS 13 or newer.
+
+The app is ad-hoc signed, not notarized. macOS may require approval in System
+Settings > Privacy & Security. Only approve the app if you trust its source.
 
 ## Build and install
 
@@ -38,7 +51,15 @@ Swift or Python to be installed separately.
 
 ## Using Minilet
 
-Minilet launches in read-only monitoring mode. Selecting a preset or clicking
+Minilet launches with a small welcome window explaining where to find its menu-bar
+fan icon. "Got it" or the close button dismisses the window without quitting the app.
+Check "Don't show this at startup" to hide it on later launches. The menu's "Welcome
+to Minilet…" action, or reopening the running app from Finder, shows it again.
+
+The welcome window and menu both include a "Buy me a coffee" link to support the
+original author. Neither opens a browser automatically.
+
+Minilet starts in read-only monitoring mode. Selecting a preset or clicking
 "Enable fan controls" opens a macOS administrator authorization prompt. One
 session controller runs until the app quits. Changing presets within that session
 does not prompt again. No permanent daemon or sudoers exception is installed.
@@ -137,6 +158,7 @@ Sources/App.swift          AppKit menu, authorization and settings
 Sources/Control.swift      Presets, curves and temperature regulation
 Sources/Hardware.swift     SMC access and IOHID thermal readings
 Sources/Worker.swift       Session worker, Unix-socket IPC and watchdog
+Sources/Welcome.swift      Welcome window, startup preference and support link
 Tests/ControllerTests.swift
 Resources/Minilet.png      Source app icon
 Info.plist                 Bundle metadata
@@ -149,12 +171,26 @@ Run just the tests:
 ./build.sh --test
 ```
 
-There are 693 controller/IPC checks and 37 native menu checks. They run without
+There are 693 controller/IPC checks and 50 native menu/welcome checks. They run without
 fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
 monitoring without writes, presets, cleanup failures, icons and conditional menu
-visibility.
+visibility, welcome dismissal, isolated startup preferences and support actions.
 
 The socket regression simulates a 2.5-second reply and verifies that accepted
 connections clear the nonblocking flag inherited from a macOS listener.
+
+## License and support
+
+Read [LICENSE.md](LICENSE.md) for the full terms. Noncommercial use, modification
+and free redistribution are permitted subject to those terms. Commercial use,
+resale, charging fees, and requesting payments, donations or sponsorships for copies
+or forks are not permitted without a separate written agreement from the author.
+The license is included in app bundles and ZIP distributions.
+
+The copyright holder retains their own rights, including accepting support.
+Unchanged links that send support directly to the original author may be retained;
+they cannot be replaced with fundraising links for a fork.
+
+[Buy me a coffee](https://buymeacoffee.com/brunnolou)

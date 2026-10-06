@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var debounce: DispatchWorkItem?
     private var sleepObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
+    private lazy var welcomeController = WelcomeWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Don't run two UI instances with conflicting controller sessions.
@@ -78,7 +79,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.pending = .auto
             self?.refresh()
         }
+        if WelcomeWindowController.shouldShowOnLaunch() { showWelcome() }
     }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        // An explicit launch from Finder should explain where the app lives,
+        // even if startup welcomes were disabled.
+        showWelcome()
+        return true
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    @objc private func showWelcome() { welcomeController.present() }
+    @objc private func openSupport() { NSWorkspace.shared.open(MiniletLinks.support) }
 
     private func createMenu() {
         menu.autoenablesItems = false
@@ -141,6 +155,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         authorizeItem.target = self
         menu.addItem(authorizeItem)
+        menu.addItem(.separator())
+        let welcomeItem = NSMenuItem(title: "Welcome to Minilet…", action: #selector(showWelcome), keyEquivalent: "")
+        welcomeItem.target = self
+        welcomeItem.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
+        menu.addItem(welcomeItem)
+        let supportItem = NSMenuItem(title: "Buy me a coffee", action: #selector(openSupport), keyEquivalent: "")
+        supportItem.target = self
+        supportItem.image = NSImage(systemSymbolName: "cup.and.saucer", accessibilityDescription: nil)
+        supportItem.toolTip = MiniletLinks.support.absoluteString
+        menu.addItem(supportItem)
         let quitItem = NSMenuItem(title: "Quit and restore automatic", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
@@ -389,8 +413,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mode = nil
         updateChecks()
         check(guardOptionItems.allSatisfy { $0.isHidden }, "Lost authorization hides Guard options")
+        check(menu.items.contains { $0.action == #selector(showWelcome) && $0.target === self }, "Menu can reopen the welcome window")
+        check(menu.items.contains { $0.action == #selector(openSupport) && $0.target === self }, "Menu can open the support link")
+        check(!applicationShouldTerminateAfterLastWindowClosed(NSApp), "Closing welcome must not quit the menu-bar app")
+        checks += WelcomeWindowController.runSelfTest()
         NSStatusBar.system.removeStatusItem(statusItem)
-        print("\(checks) native menu checks passed")
+        print("\(checks) native menu and welcome checks passed")
     }
 
     @objc private func showControlError() {
