@@ -5,48 +5,32 @@
 A native macOS menu-bar fan controller for Apple Silicon Macs with fans. Presets
 for fixed speeds, live temperature and RPM readings, and a temperature-driven Guard.
 Built with Swift and AppKit, without third-party dependencies.
+The downloaded app does not require Python, Xcode or developer tools.
 
-## Download
+## Download and install
 
-Get the app ZIP from [GitHub Releases](https://github.com/brunnolou/minilet/releases).
-Extract it, move `Minilet.app` to your Applications folder, and open it. Releases
-are previews for Apple Silicon Macs with fans, running macOS 13 or newer.
-Each GPL release includes its matching source ZIP and build instructions.
-Version 0.1.1 and later use GPL v3.0; the historical 0.1.0 preview used different terms.
+Requires an Apple Silicon Mac with fans, running macOS 13 or newer.
 
-The app is ad-hoc signed, not notarized. macOS may require approval in System
-Settings > Privacy & Security. Only approve the app if you trust its source.
+1. Download the app ZIP, named `Minilet-<version>-arm64.zip`, from
+   [GitHub Releases](https://github.com/brunnolou/minilet/releases).
+2. Unzip it and move `Minilet.app` to your Applications folder.
+3. Open Minilet and look for the fan icon near the clock.
+
+No Python, Xcode, developer tools or Terminal commands are needed to run the app.
+The separate source ZIP is for developers who want to build or modify Minilet.
+
+### If macOS blocks the app
+
+Minilet is ad-hoc signed, not Apple-notarized. Only approve it if you trust its source.
+
+1. Click **Done** in the "Minilet Not Opened" warning, not Move to Trash.
+2. Open **System Settings > Privacy & Security** and scroll to the Security section.
+3. Find the Minilet blocked message and click **Open Anyway**, then confirm.
+
+"Open Anyway" appears in System Settings, not in the initial warning popup.
+Do this shortly after attempting to launch the app. Do not disable Gatekeeper globally.
 
 <img width="320" alt="minilet-open-anyway" src="https://github.com/user-attachments/assets/82d4e47b-7f98-4df2-acbe-283cb8276606" />
-
-
-## Build and install
-
-Requires macOS 13 or newer, a Swift 6 toolchain and Python 3. Apple's command-line
-build tools provide the remaining utilities.
-
-```sh
-git clone https://github.com/brunnolou/minilet.git
-cd minilet
-./build.sh
-```
-
-This runs the tests and creates:
-
-- `.build/Minilet.app`, a self-contained app bundle.
-- `.build/Minilet.zip`, a packaged copy.
-
-The default build does not replace or stop a running app. To install, quit Minilet
-first, then run:
-
-```sh
-./build.sh --install
-open "$HOME/Applications/Minilet.app"
-```
-
-The app is ad-hoc signed and verified locally, not notarized for public distribution.
-Builds target the Mac's native architecture. Running the bundle does not require
-Swift or Python to be installed separately.
 
 ## Using Minilet
 
@@ -138,6 +122,36 @@ slow hardware replies for up to 150 seconds without blocking the main thread.
 
 ## Development
 
+### Build from source
+
+This section is for developers, not required to use the downloaded app.
+Building requires macOS 13 or newer, a Swift 6 toolchain, Python 3 and Apple's
+command-line build tools.
+
+```sh
+git clone https://github.com/brunnolou/minilet.git
+cd minilet
+./build.sh
+```
+
+This runs the tests and creates:
+
+- `.build/Minilet.app`, a self-contained app bundle.
+- `.build/Minilet.zip`, a packaged copy.
+
+The default build does not replace or stop a running app. To install your build,
+quit Minilet first, then run:
+
+```sh
+./build.sh --install
+open "$HOME/Applications/Minilet.app"
+```
+
+Builds target the Mac's native architecture and are ad-hoc signed and verified
+locally, not notarized for public distribution.
+
+### Project layout
+
 ```
 Sources/App.swift          AppKit menu, authorization and settings
 Sources/Control.swift      Presets, curves and temperature regulation
@@ -149,6 +163,8 @@ Resources/Minilet.png      Source app icon
 Info.plist                 Bundle metadata
 build.sh                   Build, tests, signing and packaging
 ```
+
+### Tests
 
 Run just the tests:
 
@@ -180,6 +196,9 @@ The app's "License and source" submenu displays copyright and warranty notices,
 opens the included license, and links to the source repository. App bundles
 include the full license, project notice and matching-release source location.
 GitHub releases provide the corresponding source ZIP alongside the app ZIP.
+
+Version 0.1.1 and later use GPL v3.0; the historical 0.1.0 preview used different terms.
+Each GPL release includes its matching source ZIP and build instructions.
 
 Minilet comes without warranty. Donations support the author but are not required.
 
