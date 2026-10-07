@@ -6,9 +6,6 @@ A native macOS menu-bar fan controller for Apple Silicon Macs with fans. Presets
 for fixed speeds, live temperature and RPM readings, and a temperature-driven Guard.
 Built with Swift and AppKit, without third-party dependencies.
 
-Open source under the [GNU General Public License v3.0](LICENSE.md),
-`GPL-3.0-only`. Commercial use and resale are permitted under the GPL's terms.
-
 Tested on one Apple Silicon Mac. Other models have not been verified.
 
 ## Download
@@ -38,7 +35,7 @@ cd minilet
 
 This runs the tests and creates:
 
-- `.build/Minilet.app`, a self-contained app bundle with its Retina icon.
+- `.build/Minilet.app`, a self-contained app bundle.
 - `.build/Minilet.zip`, a packaged copy.
 
 The default build does not replace or stop a running app. To install, quit Minilet
@@ -55,18 +52,10 @@ Swift or Python to be installed separately.
 
 ## Using Minilet
 
-Minilet launches with a small welcome window explaining where to find its menu-bar
-fan icon. "Got it" or the close button dismisses the window without quitting the app.
-Check "Don't show this at startup" to hide it on later launches. The menu's "Welcome
-to Minilet…" action, or reopening the running app from Finder, shows it again.
-
-The welcome window and menu both include a "Buy me a coffee" link to support the
-original author. Neither opens a browser automatically.
-
 Minilet starts in read-only monitoring mode. Selecting a preset or clicking
 "Enable fan controls" opens a macOS administrator authorization prompt. One
 session controller runs until the app quits. Changing presets within that session
-does not prompt again. No permanent daemon or sudoers exception is installed.
+does not prompt again. **No permanent daemon or sudoers exception is installed**.
 
 Each preset has its own native icon:
 
@@ -96,12 +85,6 @@ Crossing the target never switches between manual and automatic control.
 - At target plus 10°C, the curve reaches the selected speed cap.
 - The ramp endpoint never exceeds 92°C.
 
-```
-rampStart = target - 5
-rampEnd = min(target + 10, 92)
-t = clamp((filteredTemperature - rampStart) / (rampEnd - rampStart), 0, 1)
-RPM = hardwareMinimum + (cap - hardwareMinimum) * ease(t)
-```
 
 All curves share those endpoints:
 
