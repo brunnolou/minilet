@@ -37,10 +37,9 @@ Do this shortly after attempting to launch the app. Do not disable Gatekeeper gl
 
 ## Using Minilet
 
-Minilet starts in read-only monitoring mode. Selecting a preset or clicking
-"Enable fan controls" opens a macOS administrator authorization prompt. One
-session controller runs until the app quits. Changing presets within that session
-does not prompt again. **No permanent daemon or sudoers exception is installed**.
+Minilet starts in read-only monitoring mode. Selecting a fan preset requests
+administrator authorization when needed. One session controller runs until the
+app quits. Changing presets within that session does not prompt again. **No permanent daemon or sudoers exception is installed**.
 
 Memory and temperature monitoring do not require administrator permission.
 Fan approval currently lasts for the app session, not across relaunches. Persistent
@@ -57,9 +56,10 @@ Each preset has its own native icon:
 - **Full speed** requests each fan's hardware maximum.
 - **Temperature guard** adjusts RPM continuously using temperature and the selected curve.
 
-Guard has a separate menu section. Its curve, sliders, ramp details and filtered
-temperature are hidden unless Guard is selected. Selecting another preset hides
-those options immediately.
+Temperature readings and fan controls are grouped before the memory section.
+Guard stays selectable in the main menu. While selected, its curve, target,
+speed cap, ramp details and filtered temperature are in a "Guard settings" submenu.
+Selecting another preset hides that submenu.
 
 Settings persist, including when migrating from the earlier Fan Menu prototype.
 Active presets never restart automatically on launch or after waking from sleep.
@@ -72,8 +72,8 @@ pressure: system-neutral for Normal, yellow for Warning, red for Critical.
 
 The menu keeps detailed RAM values, the current pressure state, compressed RAM,
 swap used and a rounded five-minute pressure timeline. History starts at launch,
-clears after sleep and leaves gaps for missing readings. Exact values and pressure remain available in the menu-bar tooltip and
-accessibility label.
+clears after sleep and leaves gaps for missing readings. Exact values and pressure
+remain available in the menu-bar tooltip and accessibility label.
 
 Memory is sampled every two seconds with unprivileged native Mach/sysctl calls,
 independently of fan operations. The menu can open Activity Monitor.
@@ -198,7 +198,7 @@ Run just the tests:
 ./build.sh --test
 ```
 
-There are 693 controller/IPC checks, 47 memory checks and 78 native menu/welcome
+There are 693 controller/IPC checks, 47 memory checks and 85 native menu/welcome
 checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
@@ -221,9 +221,10 @@ modified versions, you must comply with the GPL, including preserving notices,
 providing the corresponding source, and licensing covered modifications under
 GPL v3.0. There are no added noncommercial or donation restrictions.
 
-The app's "License and source" submenu displays copyright and warranty notices,
-opens the included license, and links to the source repository. App bundles
-include the full license, project notice and matching-release source location.
+"About Minilet" contains the GitHub and Buy Me a Coffee links, plus a small
+copyright/GPL line that opens the full license. These links are not separate
+main-menu entries. App bundles include the full license, project notice and
+matching-release source location.
 GitHub releases provide the corresponding source ZIP alongside the app ZIP.
 
 Version 0.1.1 and later use GPL v3.0; the historical 0.1.0 preview used different terms.

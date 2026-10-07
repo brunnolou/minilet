@@ -20,7 +20,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let speedItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let controlTempItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let outputItem = NSMenuItem(title: "Monitoring only", action: nil, keyEquivalent: "")
-    private let authorizeItem = NSMenuItem(title: "Enable fan controls…", action: #selector(authorize), keyEquivalent: "")
     private let memoryItem = NSMenuItem(title: "Reading memory…", action: nil, keyEquivalent: "")
     private let pressureItem = NSMenuItem(title: "Memory pressure   Reading…", action: nil, keyEquivalent: "")
     private let compressedItem = NSMenuItem(title: "Compressed   -- GB", action: nil, keyEquivalent: "")
@@ -35,8 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var memoryRefreshing = false
     private var modeItems: [FanMode: NSMenuItem] = [:]
     private var guardOptionItems: [NSMenuItem] = []
+    private let guardSettingsItem = NSMenuItem(title: "Guard settings", action: nil, keyEquivalent: "")
+    private let guardSettingsMenu = NSMenu()
     private var hasControlTemperature = false
-    private let curveMenuItem = NSMenuItem(title: "Guard curve", action: nil, keyEquivalent: "")
+    private let curveMenuItem = NSMenuItem(title: "Curve", action: nil, keyEquivalent: "")
     private var curveItems: [CurveType: NSMenuItem] = [:]
     private let targetLabel = NSTextField(labelWithString: "")
     private let maxLabel = NSTextField(labelWithString: "")
@@ -118,14 +119,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     @objc private func showWelcome() { welcomeController.present() }
-    @objc private func openSupport() { NSWorkspace.shared.open(MiniletLinks.support) }
-    @objc private func openSource() { NSWorkspace.shared.open(MiniletLinks.source) }
     @objc private func openActivityMonitor() {
         NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
-    }
-    @objc private func openLicense() {
-        let url = Bundle.main.url(forResource: "LICENSE", withExtension: "md") ?? MiniletLinks.license
-        NSWorkspace.shared.open(url)
     }
 
     private func createMenu() {
@@ -144,13 +139,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.toolTip = "Minilet · monitoring only"
         statusItem.menu = menu
         menu.addItem(temperatureItem)
-        menu.addItem(controlTempItem)
         menu.addItem(speedItem)
         outputItem.target = self
         outputItem.action = #selector(showControlError)
         menu.addItem(outputItem)
-        menu.addItem(.separator())
-        createMemoryMenu()
         menu.addItem(.separator())
         for preset in FanMode.allCases {
             if preset == .guardMode { menu.addItem(.separator()) }
@@ -161,7 +153,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             modeItems[preset] = item
             menu.addItem(item)
         }
-        addGuardOption(.separator())
+        guardSettingsMenu.autoenablesItems = false
+        guardSettingsItem.submenu = guardSettingsMenu
+        guardSettingsItem.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil)
+        menu.addItem(guardSettingsItem)
         let curveMenu = NSMenu()
         curveMenu.autoenablesItems = false
         for curve in CurveType.allCases {
@@ -174,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         curveMenuItem.submenu = curveMenu
         addGuardOption(curveMenuItem)
         updateCurveChecks()
+        addGuardOption(.separator())
         targetSlider.doubleValue = settings.target
         maxSlider.doubleValue = settings.maxRPM
         for slider in [targetSlider, maxSlider] {
@@ -183,42 +179,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         addGuardOption(sliderItem(label: targetLabel, slider: targetSlider))
         addGuardOption(sliderItem(label: maxLabel, slider: maxSlider))
+        addGuardOption(.separator())
         rampItem.isEnabled = false
         addGuardOption(rampItem)
         let note = NSMenuItem(title: "Full speed overrides the cap at 92°C", action: nil, keyEquivalent: "")
         note.isEnabled = false
         addGuardOption(note)
+        addGuardOption(controlTempItem)
         menu.addItem(.separator())
-        authorizeItem.target = self
-        menu.addItem(authorizeItem)
+        createMemoryMenu()
         menu.addItem(.separator())
-        let welcomeItem = NSMenuItem(title: "Welcome to Minilet…", action: #selector(showWelcome), keyEquivalent: "")
+        let welcomeItem = NSMenuItem(title: "About Minilet", action: #selector(showWelcome), keyEquivalent: "")
         welcomeItem.target = self
         welcomeItem.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
         menu.addItem(welcomeItem)
-        let supportItem = NSMenuItem(title: "Buy me a coffee", action: #selector(openSupport), keyEquivalent: "")
-        supportItem.target = self
-        supportItem.image = NSImage(systemSymbolName: "cup.and.saucer", accessibilityDescription: nil)
-        supportItem.toolTip = MiniletLinks.support.absoluteString
-        menu.addItem(supportItem)
-        let licenseItem = NSMenuItem(title: "License and source", action: nil, keyEquivalent: "")
-        licenseItem.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: nil)
-        let licenseMenu = NSMenu()
-        licenseMenu.autoenablesItems = false
-        for title in ["Copyright 2026 brunnolou", "GNU GPL v3.0 · No warranty", "Redistribution permitted under GPL v3.0"] {
-            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            licenseMenu.addItem(item)
-        }
-        licenseMenu.addItem(.separator())
-        let readLicense = NSMenuItem(title: "Read license…", action: #selector(openLicense), keyEquivalent: "")
-        readLicense.target = self
-        licenseMenu.addItem(readLicense)
-        let sourceItem = NSMenuItem(title: "Source code…", action: #selector(openSource), keyEquivalent: "")
-        sourceItem.target = self
-        licenseMenu.addItem(sourceItem)
-        licenseItem.submenu = licenseMenu
-        menu.addItem(licenseItem)
         let quitItem = NSMenuItem(title: "Quit and restore automatic", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
@@ -305,7 +279,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func addGuardOption(_ item: NSMenuItem) {
         guardOptionItems.append(item)
-        menu.addItem(item)
+        guardSettingsMenu.addItem(item)
     }
 
     private func updateGuardVisibility() {
@@ -313,7 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // for authorization. A newly selected preset hides them immediately.
         let selected = pending ?? inFlightMode ?? mode
         let showGuard = selected == .guardMode
-        for item in guardOptionItems { item.isHidden = !showGuard }
+        guardSettingsItem.isHidden = !showGuard
         controlTempItem.isHidden = !showGuard || !hasControlTemperature
     }
 
@@ -330,8 +304,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateSliderLabels() {
-        targetLabel.stringValue = "Guard target   \(Int(settings.target))°C"
-        maxLabel.stringValue = "Guard speed cap   \(Int(settings.maxRPM)) RPM"
+        targetLabel.stringValue = "Target temperature   \(Int(settings.target))°C"
+        maxLabel.stringValue = "Speed cap   \(Int(settings.maxRPM)) RPM"
         rampItem.title = "Min RPM below \(Int(settings.target - 5))°C · cap at \(Int(settings.rampEndTemperature))°C"
     }
 
@@ -350,7 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateCurveChecks() {
-        curveMenuItem.title = "Guard curve · \(settings.curve.title)"
+        curveMenuItem.title = "Curve · \(settings.curve.title)"
         for (curve, item) in curveItems { item.state = curve == settings.curve ? .on : .off }
     }
 
@@ -377,12 +351,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         else { authorize() }
     }
 
-    @objc private func authorize() {
+    private func authorize() {
         guard !connected, authProcess == nil else { return }
         guard let executable = Bundle.main.executablePath else { return }
         outputItem.title = "Waiting for authorization…"
-        authorizeItem.title = "Waiting for authorization…"
-        authorizeItem.isEnabled = false
+        outputItem.isEnabled = false
         let command = [executable, "--worker", session, String(getuid()), String(getpid())].map(shellQuote).joined(separator: " ")
         let script = "do shell script \(appleScriptString(command)) with administrator privileges"
         let process = Process()
@@ -410,8 +383,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.pending = nil
                 self.inFlightMode = nil
                 self.updateChecks()
-                self.authorizeItem.title = "Enable fan controls…"
-                self.authorizeItem.isEnabled = true
                 if !self.terminating {
                     self.outputItem.title = failure == nil ? "Controller stopped · monitoring only" : "Authorization/controller failed"
                     if let failure = failure, !failure.contains("-128") { self.showError(failure) }
@@ -470,11 +441,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     self.speedItem.title = reply.rpms.enumerated().map { "Fan \($0.offset + 1): \(Int($0.element))" }.joined(separator: "   ") + " RPM"
                     self.lastError = reply.error
-                    self.outputItem.title = reply.error == nil ? reply.output : "Control error · click for details"
-                    self.outputItem.isEnabled = reply.error != nil
-                    self.hardwareStatus = reply.error ?? reply.output
-                    self.authorizeItem.title = self.connected ? "Controls enabled for this session" : (self.authProcess == nil ? "Enable fan controls…" : "Waiting for authorization…")
-                    self.authorizeItem.isEnabled = !self.connected && self.authProcess == nil
+                    let waitingForAuthorization = !self.connected && self.authProcess != nil
+                    self.outputItem.title = waitingForAuthorization ? "Waiting for authorization…" : (reply.error == nil ? reply.output : "Control error · click for details")
+                    self.outputItem.isEnabled = !waitingForAuthorization && reply.error != nil
+                    self.hardwareStatus = waitingForAuthorization ? self.outputItem.title : (reply.error ?? reply.output)
                     if let error = reply.error, selected != nil { self.showError(error) }
                 case .failure(let error):
                     self.latestTemperature = nil
@@ -511,13 +481,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let guardIndex = menu.index(of: modeItems[.guardMode]!)
         check(menu.item(at: guardIndex - 1)?.isSeparatorItem == true, "Guard must have its own section")
         check(guardIndex > menu.index(of: modeItems[.full]!), "Guard must follow fixed presets")
-        check(guardOptionItems.allSatisfy { $0.isHidden }, "Monitoring must hide all guard options")
+        check(menu.index(of: memoryItem) > menu.index(of: guardSettingsItem), "Memory must follow the entire temperature and fan-control section")
+        check(!menu.items.contains { $0.title == "Enable fan controls…" }, "Fan authorization must happen on demand without a separate menu action")
+        check(guardSettingsItem.isHidden, "Monitoring must hide Guard settings")
+        check(guardOptionItems.allSatisfy { $0.menu === guardSettingsMenu }, "Guard options must belong to the settings submenu")
+        check(!menu.items.contains { $0 === curveMenuItem || $0 === rampItem || $0 === controlTempItem || $0.view === targetSlider.superview || $0.view === maxSlider.superview }, "Guard settings and readings must not clutter the main menu")
         for preset in FanMode.allCases {
             mode = preset
             hasControlTemperature = true
             updateChecks()
             let guardSelected = preset == .guardMode
-            check(guardOptionItems.allSatisfy { $0.isHidden == !guardSelected }, "Only Guard shows its options")
+            check(guardSettingsItem.isHidden == !guardSelected, "Only Guard shows its settings submenu")
             check(controlTempItem.isHidden == !guardSelected, "Only Guard shows filtered temperature")
             check(modeItems[preset]?.state == .on, "The confirmed preset remains checked")
             check(!memoryItem.isHidden && !pressureItem.isHidden, "Memory stays visible with every fan preset")
@@ -525,26 +499,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mode = .auto
         pending = .guardMode
         updateGuardVisibility()
-        check(guardOptionItems.allSatisfy { !$0.isHidden }, "Guard options appear during authorization")
+        check(!guardSettingsItem.isHidden, "Guard settings appear during authorization")
         pending = nil
         inFlightMode = .guardMode
         updateGuardVisibility()
-        check(guardOptionItems.allSatisfy { !$0.isHidden }, "Guard options stay visible while applying")
+        check(!guardSettingsItem.isHidden, "Guard settings stay visible while applying")
         pending = .high
         updateGuardVisibility()
-        check(guardOptionItems.allSatisfy { $0.isHidden }, "Selecting High hides Guard options immediately")
+        check(guardSettingsItem.isHidden, "Selecting High hides Guard settings immediately")
         pending = nil
         inFlightMode = nil
         mode = nil
         updateChecks()
-        check(guardOptionItems.allSatisfy { $0.isHidden }, "Lost authorization hides Guard options")
-        check(menu.items.contains { $0.action == #selector(showWelcome) && $0.target === self }, "Menu can reopen the welcome window")
-        check(menu.items.contains { $0.action == #selector(openSupport) && $0.target === self }, "Menu can open the support link")
+        check(guardSettingsItem.isHidden, "Lost authorization hides Guard settings")
+        check(menu.items.contains { $0.title == "About Minilet" && $0.action == #selector(showWelcome) && $0.target === self }, "About Minilet opens the welcome window")
+        check(!menu.items.contains { $0.title == "Buy me a coffee" }, "The main menu must not contain the coffee link")
         check(!applicationShouldTerminateAfterLastWindowClosed(NSApp), "Closing welcome must not quit the menu-bar app")
-        let legal = menu.items.first { $0.title == "License and source" }?.submenu
-        check(legal?.items.contains { $0.title == "GNU GPL v3.0 · No warranty" } == true, "Menu must display licensing and warranty notices")
-        check(legal?.items.contains { $0.action == #selector(openLicense) && $0.target === self } == true, "License must be accessible from the menu")
-        check(legal?.items.contains { $0.action == #selector(openSource) && $0.target === self } == true, "Source must be accessible from the menu")
+        check(!menu.items.contains { $0.title == "License and source" }, "Licensing belongs in About, not the main menu")
         let gib = UInt64(1 << 30)
         latestTemperature = 53
         applyMemory(MemorySnapshot(totalBytes: 24 * gib, usedBytes: 18 * gib + gib / 2,
@@ -576,6 +547,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         check(MemoryVisuals.color(.warning).isEqual(NSColor.systemYellow), "Warning pressure must use yellow")
         check(MemoryVisuals.color(.critical).isEqual(NSColor.systemRed), "Critical pressure must use red")
         let fullBar = MemoryVisuals.usageBar(fraction: 1, pressure: .normal)
+        check(fullBar.size.height == 8 && barAttachment()?.bounds.height == 8, "The RAM bar must use the shorter height")
         if let data = fullBar.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data) {
             check((bitmap.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.05, "Filled bars must retain transparent rounded corners")
             check((bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0) > 0.95, "Full usage must fill the bar center")

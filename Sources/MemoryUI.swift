@@ -48,8 +48,8 @@ enum MemoryVisuals {
     }
 
     static func usageBar(fraction: Double?, pressure: MemoryPressure) -> NSImage {
-        NSImage(size: NSSize(width: 32, height: 12), flipped: false) { _ in
-            let track = NSRect(x: 0.5, y: 0.5, width: 31, height: 11)
+        NSImage(size: NSSize(width: 32, height: 8), flipped: false) { _ in
+            let track = NSRect(x: 0.5, y: 0.5, width: 31, height: 7)
             let outline = capsule(track)
             NSColor.labelColor.withAlphaComponent(0.16).setFill()
             outline.fill()
@@ -73,7 +73,7 @@ enum MemoryVisuals {
                          .foregroundColor: NSColor.labelColor])
         let attachment = NSTextAttachment()
         attachment.image = usageBar(fraction: memory?.usageFraction, pressure: memory?.pressure ?? .unknown)
-        attachment.bounds = NSRect(x: 0, y: -1, width: 32, height: 12)
+        attachment.bounds = NSRect(x: 0, y: 1, width: 32, height: 8)
         result.append(NSAttributedString(attachment: attachment))
         return result
     }

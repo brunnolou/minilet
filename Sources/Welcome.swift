@@ -6,7 +6,7 @@ import AppKit
 
 enum MiniletLinks {
     static let support = URL(string: "https://buymeacoffee.com/brunnolou")!
-    static let source = URL(string: "https://github.com/brunnolou/minilet")!
+    static let repository = URL(string: "https://github.com/brunnolou/minilet")!
     static let license = URL(string: "https://github.com/brunnolou/minilet/blob/main/LICENSE.md")!
 }
 
@@ -16,6 +16,8 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     private let dontShowAgain = NSButton(checkboxWithTitle: "Don't show this at startup", target: nil, action: nil)
     private let dismissButton = NSButton(title: "Got it", target: nil, action: nil)
     private let supportButton = NSButton(title: "Buy me a coffee", target: nil, action: nil)
+    private let repositoryButton = NSButton(title: "GitHub", target: nil, action: nil)
+    private let licenseButton = NSButton(title: "© 2026 brunnolou · GPLv3 · No warranty", target: nil, action: nil)
 
     static func shouldShowOnLaunch(defaults: UserDefaults = .standard) -> Bool {
         !defaults.bool(forKey: hideOnLaunchKey)
@@ -26,7 +28,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         super.init(window: window)
-        window.title = "Minilet"
+        window.title = "About Minilet"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
@@ -82,6 +84,15 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         supportButton.frame = NSRect(x: 24, y: 24, width: 172, height: 32)
         content.addSubview(supportButton)
 
+        repositoryButton.target = self
+        repositoryButton.action = #selector(openRepository)
+        repositoryButton.isBordered = false
+        repositoryButton.font = .systemFont(ofSize: 13)
+        repositoryButton.contentTintColor = .linkColor
+        repositoryButton.toolTip = MiniletLinks.repository.absoluteString
+        repositoryButton.frame = NSRect(x: 214, y: 24, width: 94, height: 32)
+        content.addSubview(repositoryButton)
+
         dismissButton.target = self
         dismissButton.action = #selector(dismissWelcome)
         dismissButton.bezelStyle = .rounded
@@ -89,6 +100,15 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         dismissButton.frame = NSRect(x: 330, y: 24, width: 106, height: 32)
         content.addSubview(dismissButton)
         window?.defaultButtonCell = dismissButton.cell as? NSButtonCell
+
+        licenseButton.target = self
+        licenseButton.action = #selector(openLicense)
+        licenseButton.isBordered = false
+        licenseButton.font = .systemFont(ofSize: 10)
+        licenseButton.contentTintColor = .secondaryLabelColor
+        licenseButton.toolTip = "Read the GPL license. Redistribution is permitted under its terms."
+        licenseButton.frame = NSRect(x: 24, y: 2, width: 412, height: 17)
+        content.addSubview(licenseButton)
     }
 
     func present() {
@@ -105,6 +125,11 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func dismissWelcome() { close() }
     @objc private func openSupport() { NSWorkspace.shared.open(MiniletLinks.support) }
+    @objc private func openRepository() { NSWorkspace.shared.open(MiniletLinks.repository) }
+    @objc private func openLicense() {
+        let url = Bundle.main.url(forResource: "LICENSE", withExtension: "md") ?? MiniletLinks.license
+        NSWorkspace.shared.open(url)
+    }
 
     // Tests use an isolated preference domain, never the user's settings.
     static func runSelfTest() -> Int {
@@ -123,7 +148,11 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         check(controller.dontShowAgain.state == .on, "Welcome reflects the saved preference")
         check(controller.window?.styleMask.contains(.closable) == true, "Welcome must have a close button")
         check(controller.dismissButton.action == #selector(dismissWelcome), "Got it must close only the welcome window")
-        check(controller.supportButton.action == #selector(openSupport), "Welcome has a working support action")
+        check(controller.supportButton.action == #selector(openSupport), "About keeps a working support action")
+        check(controller.repositoryButton.action == #selector(openRepository) && MiniletLinks.repository.absoluteString == "https://github.com/brunnolou/minilet", "About links to the GitHub repository")
+        check(controller.window?.title == "About Minilet", "The welcome screen must be named About Minilet")
+        check(controller.licenseButton.action == #selector(openLicense), "The small license line must open the full license")
+        check(controller.licenseButton.title.contains("2026 brunnolou") && controller.licenseButton.title.contains("GPLv3") && controller.licenseButton.title.contains("No warranty"), "About must retain the small copyright and license notice")
         check(MiniletLinks.support.absoluteString == "https://buymeacoffee.com/brunnolou", "Support must use the requested URL")
         controller.dontShowAgain.state = .off
         controller.dismissButton.performClick(nil)
