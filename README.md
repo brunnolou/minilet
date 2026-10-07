@@ -1,11 +1,14 @@
-# Minilet
+# <img src="Resources/Minilet.png" width="128" alt="Minilet app icon"> Minilet 
 
-<img src="Resources/Minilet.png" width="128" alt="Minilet app icon">
+A native tiny macOS menu-bar fan controller for Apple Silicon Macs with fans. 
 
-A native macOS menu-bar fan controller for Apple Silicon Macs with fans. Presets
-for fixed speeds, live temperature and RPM readings, and a temperature-driven Guard.
+Presets for fixed speeds, live temperature and RPM readings, and a temperature-driven Guard. 
+
 Built with Swift and AppKit, without third-party dependencies.
-The downloaded app does not require Python, Xcode or developer tools.
+
+|Default|Set temperature|
+|--|--|
+|<img width="420" height="429" alt="image" src="https://github.com/user-attachments/assets/fe053427-8b00-416b-85c2-58d8c50bce66" />|<img width="447" height="668" alt="image" src="https://github.com/user-attachments/assets/c9181a79-f784-4bd6-9407-b3e39ed5ae14" />|
 
 ## Download and install
 
