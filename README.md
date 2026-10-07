@@ -22,6 +22,9 @@ Version 0.1.1 and later use GPL v3.0; the historical 0.1.0 preview used differen
 The app is ad-hoc signed, not notarized. macOS may require approval in System
 Settings > Privacy & Security. Only approve the app if you trust its source.
 
+<img width="320" alt="minilet-open-anyway" src="https://github.com/user-attachments/assets/82d4e47b-7f98-4df2-acbe-283cb8276606" />
+
+
 ## Build and install
 
 Requires macOS 13 or newer, a Swift 6 toolchain and Python 3. Apple's command-line
