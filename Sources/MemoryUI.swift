@@ -7,7 +7,7 @@ import AppKit
 enum MemoryVisuals {
     static func color(_ pressure: MemoryPressure) -> NSColor {
         switch pressure {
-        case .normal: return .systemGreen
+        case .normal: return NSColor.labelColor.withAlphaComponent(1)
         case .warning: return .systemYellow
         case .critical: return .systemRed
         case .unknown: return .secondaryLabelColor
@@ -43,17 +43,38 @@ enum MemoryVisuals {
         }
     }
 
+    static func capsule(_ rect: NSRect) -> NSBezierPath {
+        NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
+    }
+
+    static func usageBar(fraction: Double?, pressure: MemoryPressure) -> NSImage {
+        NSImage(size: NSSize(width: 32, height: 12), flipped: false) { _ in
+            let track = NSRect(x: 0.5, y: 0.5, width: 31, height: 11)
+            let outline = capsule(track)
+            NSColor.labelColor.withAlphaComponent(0.16).setFill()
+            outline.fill()
+            if let fraction = fraction, fraction.isFinite {
+                NSGraphicsContext.saveGraphicsState()
+                outline.addClip()
+                color(pressure).setFill()
+                NSRect(x: track.minX, y: track.minY, width: track.width * min(1, max(0, fraction)), height: track.height).fill()
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            NSColor.labelColor.withAlphaComponent(0.55).setStroke()
+            outline.lineWidth = 1
+            outline.stroke()
+            return true
+        }
+    }
+
     static func statusTitle(temperature: Double?, memory: MemorySnapshot?) -> NSAttributedString {
-        let text = MemoryFormat.statusTitle(temperature: temperature, memory: memory)
-        let result = NSMutableAttributedString(string: text,
+        let result = NSMutableAttributedString(string: " \(MemoryFormat.temperatureTitle(temperature))  ",
             attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
                          .foregroundColor: NSColor.labelColor])
         let attachment = NSTextAttachment()
-        attachment.image = badge(memory?.pressure ?? .unknown)
-        attachment.bounds = NSRect(x: 0, y: 1, width: 9, height: 9)
-        let location = (text as NSString).range(of: "· ").location + 2
-        result.insert(NSAttributedString(attachment: attachment), at: location)
-        result.insert(NSAttributedString(string: " "), at: location + 1)
+        attachment.image = usageBar(fraction: memory?.usageFraction, pressure: memory?.pressure ?? .unknown)
+        attachment.bounds = NSRect(x: 0, y: -1, width: 32, height: 12)
+        result.append(NSAttributedString(attachment: attachment))
         return result
     }
 }
@@ -68,7 +89,7 @@ final class PressureHistoryView: NSView {
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 42))
-        toolTip = "Green: normal. Yellow: warning. Red: critical. Grey: unavailable. Only measured states are shown; gaps and time before launch are not invented."
+        toolTip = "Memory pressure over the last five minutes."
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
     }
@@ -80,21 +101,19 @@ final class PressureHistoryView: NSView {
         ("Pressure · last 5 minutes" as NSString).draw(at: NSPoint(x: 17, y: 23),
             withAttributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
         let track = NSRect(x: 17, y: 7, width: bounds.width - 34, height: 9)
+        let outline = MemoryVisuals.capsule(track)
         NSColor.quaternaryLabelColor.setFill()
-        NSBezierPath(roundedRect: track, xRadius: 3, yRadius: 3).fill()
+        outline.fill()
+        NSGraphicsContext.saveGraphicsState()
+        outline.addClip()
         let now = ProcessInfo.processInfo.systemUptime
         let start = now - PressureHistory.duration
-        for (index, sample) in history.samples.enumerated() {
-            let next = index + 1 < history.samples.count ? history.samples[index + 1].timestamp : now
-            // Samples arrive every two seconds. Never bridge long sleep/read gaps.
-            let end = min(now, min(next, sample.timestamp + 6))
-            let beginning = max(start, sample.timestamp)
-            guard end >= beginning else { continue }
-            let x = track.minX + (beginning - start) / PressureHistory.duration * track.width
-            let width = min(track.maxX - x, max(1, (end - beginning) / PressureHistory.duration * track.width))
-            guard width > 0 else { continue }
-            MemoryVisuals.color(sample.pressure).setFill()
+        for span in history.spans(until: now) {
+            let x = track.minX + (span.start - start) / PressureHistory.duration * track.width
+            let width = (span.end - span.start) / PressureHistory.duration * track.width
+            MemoryVisuals.color(span.pressure).setFill()
             NSRect(x: x, y: track.minY, width: width, height: track.height).fill()
         }
+        NSGraphicsContext.restoreGraphicsState()
     }
 }

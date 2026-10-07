@@ -229,31 +229,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func createMemoryMenu() {
         memoryItem.isEnabled = false
         memoryItem.image = NSImage(systemSymbolName: "memorychip", accessibilityDescription: nil)
-        memoryItem.toolTip = "Physical app, wired and compressed RAM, excluding reclaimable file-backed and purgeable memory. Sampling can differ from Activity Monitor."
         compressedItem.isEnabled = false
-        compressedItem.toolTip = "Physical RAM occupied by the memory compressor, not its uncompressed size."
         swapItem.isEnabled = false
-        swapItem.toolTip = "Data currently stored in swap on disk. Swap used alone does not mean the Mac is under pressure."
+        pressureItem.isEnabled = false
         pressureItem.image = MemoryVisuals.badge(.unknown)
-        let help = NSMenu()
-        help.autoenablesItems = false
-        let explanations: [(MemoryPressure, String)] = [
-            (.normal, "Normal: memory demand is handled comfortably"),
-            (.warning, "Warning: memory is constrained; watch for sustained pressure"),
-            (.critical, "Critical: memory is a bottleneck; closing heavy apps may help"),
-            (.unknown, "Unavailable: macOS pressure could not be read")
-        ]
-        for (pressure, title) in explanations {
-            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            item.image = MemoryVisuals.badge(pressure)
-            item.isEnabled = false
-            help.addItem(item)
-        }
-        let note = NSMenuItem(title: "Pressure comes from macOS, not a RAM percentage", action: nil, keyEquivalent: "")
-        note.isEnabled = false
-        help.addItem(.separator())
-        help.addItem(note)
-        pressureItem.submenu = help
         menu.addItem(memoryItem)
         menu.addItem(pressureItem)
         menu.addItem(compressedItem)
@@ -297,7 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func applyMemory(_ snapshot: MemorySnapshot) {
         latestMemory = snapshot
         memoryItem.title = "Memory used   \(snapshot.compactUsage)"
-        memoryItem.toolTip = "Physical app, wired and compressed RAM, excluding reclaimable file-backed and purgeable memory. Sampling can differ from Activity Monitor."
+        memoryItem.toolTip = nil
         pressureItem.title = "Memory pressure   \(snapshot.pressure.title)"
         pressureItem.image = MemoryVisuals.badge(snapshot.pressure)
         compressedItem.title = "Compressed   \(MemoryFormat.gigabytes(snapshot.compressedBytes)) GB"
@@ -572,15 +551,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    compressedBytes: 2 * gib, swapUsedBytes: 3 * gib,
                                    pressure: .normal, timestamp: ProcessInfo.processInfo.systemUptime))
         let title = statusItem.button?.attributedTitle.string ?? ""
-        check(title.contains("53°") && title.contains("18.5/24 GB"), "Temperature and RAM must appear together")
+        func barAttachment() -> NSTextAttachment? {
+            guard let title = statusItem.button?.attributedTitle, title.length > 0 else { return nil }
+            return title.attribute(.attachment, at: title.length - 1, effectiveRange: nil) as? NSTextAttachment
+        }
+        check(title.contains("53°") && !title.contains("GB") && barAttachment() != nil, "Temperature and the usage bar must appear together without RAM text")
+        check(memoryItem.title.contains("18.5/24 GB"), "Detailed RAM values remain in the menu")
         check(pressureItem.title.contains("Normal"), "Pressure must use macOS state")
         check(compressedItem.title.contains("2.0 GB") && swapItem.title.contains("3.0 GB"), "Menu must show compressed RAM and swap")
         check(pressureHistoryView.history.samples.count == 1, "History must not invent samples before launch")
         check(authProcess == nil && !connected, "Memory display must not authorize fan control")
-        check(pressureItem.submenu?.items.count == 6, "Pressure has explanations, not percentage thresholds")
+        check(pressureItem.submenu == nil && !pressureItem.isEnabled, "Pressure is a plain state row, not an explanation dropdown")
         latestTemperature = nil
         updateStatusDisplay()
-        check(statusItem.button?.attributedTitle.string.contains("18.5/24 GB") == true, "Missing temperature must not hide memory")
+        check(barAttachment() != nil, "Missing temperature must not hide the usage bar")
         latestTemperature = 53
         latestMemory = nil
         updateStatusDisplay()
@@ -588,6 +572,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for pressure in MemoryPressure.allCases {
             check(MemoryVisuals.badge(pressure).size == NSSize(width: 9, height: 9), "All pressure states need a visual indicator")
         }
+        check(MemoryVisuals.color(.normal).isEqual(NSColor.labelColor.withAlphaComponent(1)), "Normal pressure must use system-neutral color")
+        check(MemoryVisuals.color(.warning).isEqual(NSColor.systemYellow), "Warning pressure must use yellow")
+        check(MemoryVisuals.color(.critical).isEqual(NSColor.systemRed), "Critical pressure must use red")
+        let fullBar = MemoryVisuals.usageBar(fraction: 1, pressure: .normal)
+        if let data = fullBar.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data) {
+            check((bitmap.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.05, "Filled bars must retain transparent rounded corners")
+            check((bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0) > 0.95, "Full usage must fill the bar center")
+        } else { preconditionFailure("Usage bar must render") }
+        let historyOutline = MemoryVisuals.capsule(NSRect(x: 0, y: 0, width: 100, height: 10))
+        check(!historyOutline.contains(NSPoint(x: 0.5, y: 0.5)) && historyOutline.contains(NSPoint(x: 50, y: 5)), "History uses a capsule outline for clipping its fills")
         checks += WelcomeWindowController.runSelfTest()
         NSStatusBar.system.removeStatusItem(statusItem)
         print("\(checks) native menu and welcome checks passed")

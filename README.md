@@ -66,32 +66,17 @@ Active presets never restart automatically on launch or after waking from sleep.
 
 ## Memory monitoring
 
-Temperature and used/total RAM appear together in one menu-bar item, for example
-`53° · 18.5/24 GB`. A small indicator next to RAM shows macOS's actual memory
-pressure, not a percentage threshold:
+Temperature and a small rounded RAM-usage bar appear together in the menu bar.
+The fill represents physical RAM used, from 0–100%. Its color follows macOS memory
+pressure: system-neutral for Normal, yellow for Warning, red for Critical.
 
-- Green circle: normal, memory demand is handled comfortably.
-- Yellow diamond: warning, memory is constrained; watch for sustained pressure.
-- Red triangle: critical, memory is a bottleneck; closing heavy apps may help.
-- Hollow grey circle: pressure could not be read. No estimate is invented.
+The menu keeps detailed RAM values, the current pressure state, compressed RAM,
+swap used and a rounded five-minute pressure timeline. History starts at launch,
+clears after sleep and leaves gaps for missing readings. Exact values and pressure remain available in the menu-bar tooltip and
+accessibility label.
 
-The menu shows used RAM, pressure explanations, compressed RAM, swap used, and a
-five-minute color timeline. History starts when Minilet launches and clears after
-sleep. Gaps without readings are not filled with guessed pressure. Text labels,
-tooltips and accessibility labels accompany the colors.
-
-Memory reads are unprivileged native Mach/sysctl calls every two seconds. They
-continue independently of slow fan-controller operations. A temperature error
-cannot hide RAM, and a memory error cannot hide temperature. No external commands,
-Python, admin authorization or process-by-process scanning are used for RAM.
-
-Used RAM excludes reclaimable file-backed and purgeable memory. Compressed RAM
-counts physical compressor storage. GB follows macOS memory tools' binary-unit
-convention. Values may differ slightly from Activity Monitor due to sampling and
-accounting. A high RAM percentage or existing swap alone is not evidence of trouble;
-pressure tells you whether macOS is struggling to satisfy memory demand.
-
-The menu can open Activity Monitor if you want to investigate individual apps.
+Memory is sampled every two seconds with unprivileged native Mach/sysctl calls,
+independently of fan operations. The menu can open Activity Monitor.
 
 ## Temperature guard
 
@@ -213,14 +198,15 @@ Run just the tests:
 ./build.sh --test
 ```
 
-There are 693 controller/IPC checks, 40 memory checks and 71 native menu/welcome
+There are 693 controller/IPC checks, 47 memory checks and 78 native menu/welcome
 checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
 monitoring without writes, presets, cleanup failures, icons and conditional menu
 visibility, welcome dismissal, isolated startup preferences and support actions.
 Memory checks cover page accounting, real pressure levels, unsupported readings,
-bounded history, independent readouts, accessible indicators and native API reads.
+bounded history, usage ratios, rounded rendering, pressure colors, independent
+readouts, accessible indicators and native API reads.
 
 The socket regression simulates a 2.5-second reply and verifies that accepted
 connections clear the nonblocking flag inherited from a macOS listener.

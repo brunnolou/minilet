@@ -36,6 +36,10 @@ struct MemorySnapshot {
     let timestamp: Double
 
     var compactUsage: String { "\(MemoryFormat.gigabytes(usedBytes))/\(MemoryFormat.capacity(totalBytes)) GB" }
+    var usageFraction: Double? {
+        guard totalBytes > 0 else { return nil }
+        return min(1, Double(usedBytes) / Double(totalBytes))
+    }
 }
 
 enum MemoryFormat {
@@ -51,12 +55,11 @@ enum MemoryFormat {
         }
         return gigabytes(bytes)
     }
-    static func statusTitle(temperature: Double?, memory: MemorySnapshot?) -> String {
-        let temperatureText: String
+    static func temperatureTitle(_ temperature: Double?) -> String {
         if let temperature = temperature, temperature.isFinite, temperature > 0, temperature < 125 {
-            temperatureText = "\(Int(temperature.rounded()))°"
-        } else { temperatureText = "--°" }
-        return " \(temperatureText) · \(memory?.compactUsage ?? "-- GB")"
+            return "\(Int(temperature.rounded()))°"
+        }
+        return "--°"
     }
 }
 
@@ -145,6 +148,12 @@ struct PressureSample {
     let pressure: MemoryPressure
 }
 
+struct PressureSpan {
+    let start: Double
+    var end: Double
+    let pressure: MemoryPressure
+}
+
 struct PressureHistory {
     static let duration = 300.0
     static let capacity = 151
@@ -157,6 +166,24 @@ struct PressureHistory {
         if samples.last?.timestamp == timestamp { samples.removeLast() }
         samples.append(PressureSample(timestamp: timestamp, pressure: pressure))
         if samples.count > Self.capacity { samples.removeFirst(samples.count - Self.capacity) }
+    }
+
+    func spans(until now: Double) -> [PressureSpan] {
+        guard now.isFinite else { return [] }
+        var spans: [PressureSpan] = []
+        let windowStart = now - Self.duration
+        for (index, sample) in samples.enumerated() {
+            let next = index + 1 < samples.count ? samples[index + 1].timestamp : now
+            let beginning = max(windowStart, sample.timestamp)
+            let end = min(now, min(next, sample.timestamp + 6))
+            guard end > beginning else { continue }
+            if let last = spans.last, last.pressure == sample.pressure, abs(last.end - beginning) < 0.0001 {
+                spans[spans.count - 1].end = end
+            } else {
+                spans.append(PressureSpan(start: beginning, end: end, pressure: sample.pressure))
+            }
+        }
+        return spans
     }
 
     mutating func clear() { samples.removeAll() }
