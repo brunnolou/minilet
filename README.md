@@ -6,8 +6,6 @@ A native macOS menu-bar fan controller for Apple Silicon Macs with fans. Presets
 for fixed speeds, live temperature and RPM readings, and a temperature-driven Guard.
 Built with Swift and AppKit, without third-party dependencies.
 
-Tested on one Apple Silicon Mac. Other models have not been verified.
-
 ## Download
 
 Get the app ZIP from [GitHub Releases](https://github.com/brunnolou/minilet/releases).
