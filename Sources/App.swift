@@ -21,6 +21,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let controlTempItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let outputItem = NSMenuItem(title: "Monitoring only", action: nil, keyEquivalent: "")
     private let authorizeItem = NSMenuItem(title: "Enable fan controls…", action: #selector(authorize), keyEquivalent: "")
+    private let memoryItem = NSMenuItem(title: "Reading memory…", action: nil, keyEquivalent: "")
+    private let pressureItem = NSMenuItem(title: "Memory pressure   Reading…", action: nil, keyEquivalent: "")
+    private let compressedItem = NSMenuItem(title: "Compressed   -- GB", action: nil, keyEquivalent: "")
+    private let swapItem = NSMenuItem(title: "Swap used   -- GB", action: nil, keyEquivalent: "")
+    private let pressureHistoryView = PressureHistoryView()
+    private let memoryQueue = DispatchQueue(label: "Minilet.memory", qos: .utility)
+    private let memoryReader = LiveMemoryReader()
+    private var memoryHistory = PressureHistory()
+    private var latestMemory: MemorySnapshot?
+    private var latestTemperature: Double?
+    private var hardwareStatus = "Monitoring only"
+    private var memoryRefreshing = false
     private var modeItems: [FanMode: NSMenuItem] = [:]
     private var guardOptionItems: [NSMenuItem] = []
     private var hasControlTemperature = false
@@ -36,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var socketPath: String { "/var/run/minilet-\(session).sock" }
     private var authProcess: Process?
     private var timer: Timer?
+    private var memoryTimer: Timer?
     private var settings = Settings()
     private var mode: FanMode?
     private var connected = false
@@ -71,17 +84,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         createMenu()
         timer = Timer(timeInterval: 2, target: self, selector: #selector(refresh), userInfo: nil, repeats: true)
         RunLoop.main.add(timer!, forMode: .common)
+        memoryTimer = Timer(timeInterval: 2, target: self, selector: #selector(refreshMemory), userInfo: nil, repeats: true)
+        RunLoop.main.add(memoryTimer!, forMode: .common)
+        refreshMemory()
         refresh()
         let workspace = NSWorkspace.shared.notificationCenter
         sleepObserver = workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self = self else { return }
             // No preset is automatically re-enabled after waking.
             self.pending = .auto
+            self.memoryHistory.clear()
+            self.pressureHistoryView.history = self.memoryHistory
             self.refresh()
         }
         wakeObserver = workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.pending = .auto
-            self?.refresh()
+            guard let self = self else { return }
+            self.pending = .auto
+            self.memoryHistory.clear()
+            self.pressureHistoryView.history = self.memoryHistory
+            self.refreshMemory()
+            self.refresh()
         }
         if WelcomeWindowController.shouldShowOnLaunch() { showWelcome() }
     }
@@ -98,6 +120,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showWelcome() { welcomeController.present() }
     @objc private func openSupport() { NSWorkspace.shared.open(MiniletLinks.support) }
     @objc private func openSource() { NSWorkspace.shared.open(MiniletLinks.source) }
+    @objc private func openActivityMonitor() {
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
+    }
     @objc private func openLicense() {
         let url = Bundle.main.url(forResource: "LICENSE", withExtension: "md") ?? MiniletLinks.license
         NSWorkspace.shared.open(url)
@@ -115,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.image?.isTemplate = true
         statusItem.button?.imagePosition = .imageLeading
         statusItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        statusItem.button?.title = " --°"
+        statusItem.button?.attributedTitle = MemoryVisuals.statusTitle(temperature: nil, memory: nil)
         statusItem.button?.toolTip = "Minilet · monitoring only"
         statusItem.menu = menu
         menu.addItem(temperatureItem)
@@ -124,6 +149,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         outputItem.target = self
         outputItem.action = #selector(showControlError)
         menu.addItem(outputItem)
+        menu.addItem(.separator())
+        createMemoryMenu()
         menu.addItem(.separator())
         for preset in FanMode.allCases {
             if preset == .guardMode { menu.addItem(.separator()) }
@@ -197,6 +224,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quitItem)
         updateSliderLabels()
         updateChecks()
+    }
+
+    private func createMemoryMenu() {
+        memoryItem.isEnabled = false
+        memoryItem.image = NSImage(systemSymbolName: "memorychip", accessibilityDescription: nil)
+        memoryItem.toolTip = "Physical app, wired and compressed RAM, excluding reclaimable file-backed and purgeable memory. Sampling can differ from Activity Monitor."
+        compressedItem.isEnabled = false
+        compressedItem.toolTip = "Physical RAM occupied by the memory compressor, not its uncompressed size."
+        swapItem.isEnabled = false
+        swapItem.toolTip = "Data currently stored in swap on disk. Swap used alone does not mean the Mac is under pressure."
+        pressureItem.image = MemoryVisuals.badge(.unknown)
+        let help = NSMenu()
+        help.autoenablesItems = false
+        let explanations: [(MemoryPressure, String)] = [
+            (.normal, "Normal: memory demand is handled comfortably"),
+            (.warning, "Warning: memory is constrained; watch for sustained pressure"),
+            (.critical, "Critical: memory is a bottleneck; closing heavy apps may help"),
+            (.unknown, "Unavailable: macOS pressure could not be read")
+        ]
+        for (pressure, title) in explanations {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.image = MemoryVisuals.badge(pressure)
+            item.isEnabled = false
+            help.addItem(item)
+        }
+        let note = NSMenuItem(title: "Pressure comes from macOS, not a RAM percentage", action: nil, keyEquivalent: "")
+        note.isEnabled = false
+        help.addItem(.separator())
+        help.addItem(note)
+        pressureItem.submenu = help
+        menu.addItem(memoryItem)
+        menu.addItem(pressureItem)
+        menu.addItem(compressedItem)
+        menu.addItem(swapItem)
+        let history = NSMenuItem()
+        history.view = pressureHistoryView
+        menu.addItem(history)
+        let activity = NSMenuItem(title: "Open Activity Monitor…", action: #selector(openActivityMonitor), keyEquivalent: "")
+        activity.target = self
+        menu.addItem(activity)
+    }
+
+    @objc private func refreshMemory() {
+        guard !terminating, !memoryRefreshing else { return }
+        memoryRefreshing = true
+        // Independent of fan IPC. A slow SMC operation cannot freeze RAM readings.
+        memoryQueue.async { [weak self] in
+            guard let self = self else { return }
+            let result = Result { try self.memoryReader.read() }
+            DispatchQueue.main.async {
+                self.memoryRefreshing = false
+                guard !self.terminating else { return }
+                switch result {
+                case .success(let snapshot): self.applyMemory(snapshot)
+                case .failure(let error):
+                    self.latestMemory = nil
+                    self.memoryItem.title = "Memory unavailable"
+                    self.memoryItem.toolTip = error.localizedDescription
+                    self.pressureItem.title = "Memory pressure   Unavailable"
+                    self.pressureItem.image = MemoryVisuals.badge(.unknown)
+                    self.compressedItem.title = "Compressed   Unavailable"
+                    self.swapItem.title = "Swap used   Unavailable"
+                    self.memoryHistory.record(.unknown, at: ProcessInfo.processInfo.systemUptime)
+                    self.pressureHistoryView.history = self.memoryHistory
+                    self.updateStatusDisplay()
+                }
+            }
+        }
+    }
+
+    private func applyMemory(_ snapshot: MemorySnapshot) {
+        latestMemory = snapshot
+        memoryItem.title = "Memory used   \(snapshot.compactUsage)"
+        memoryItem.toolTip = "Physical app, wired and compressed RAM, excluding reclaimable file-backed and purgeable memory. Sampling can differ from Activity Monitor."
+        pressureItem.title = "Memory pressure   \(snapshot.pressure.title)"
+        pressureItem.image = MemoryVisuals.badge(snapshot.pressure)
+        compressedItem.title = "Compressed   \(MemoryFormat.gigabytes(snapshot.compressedBytes)) GB"
+        swapItem.title = snapshot.swapUsedBytes.map { "Swap used   \(MemoryFormat.gigabytes($0)) GB" } ?? "Swap used   Unavailable"
+        memoryHistory.record(snapshot.pressure, at: snapshot.timestamp)
+        pressureHistoryView.history = memoryHistory
+        updateStatusDisplay()
+    }
+
+    private func updateStatusDisplay() {
+        statusItem.button?.attributedTitle = MemoryVisuals.statusTitle(temperature: latestTemperature, memory: latestMemory)
+        let temperature = latestTemperature.map { String(format: "%.1f°C", $0) } ?? "Unavailable"
+        let usage = latestMemory?.compactUsage ?? "Unavailable"
+        let pressure = latestMemory?.pressure.title ?? "Unavailable"
+        statusItem.button?.toolTip = "Hottest die: \(temperature)\nMemory: \(usage)\nMemory pressure: \(pressure)\n\(hardwareStatus)"
+        statusItem.button?.setAccessibilityLabel("Minilet. Temperature \(temperature). Memory \(usage). Pressure \(pressure). \(hardwareStatus)")
     }
 
     private func presetIcon(_ preset: FanMode) -> NSImage? {
@@ -363,10 +480,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.connected = FileManager.default.fileExists(atPath: path)
                     self.mode = self.connected && reply.error == nil ? reply.mode : nil
                     self.updateChecks()
+                    self.latestTemperature = reply.temperature
                     if let temp = reply.temperature {
-                        self.statusItem.button?.title = " \(Int(temp.rounded()))°"
                         self.temperatureItem.title = "Hottest die   \(String(format: "%.1f", temp))°C"
-                    }
+                    } else { self.temperatureItem.title = "Temperature unavailable" }
                     self.hasControlTemperature = reply.smoothedTemperature != nil
                     self.updateGuardVisibility()
                     if let temp = reply.smoothedTemperature {
@@ -376,16 +493,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.lastError = reply.error
                     self.outputItem.title = reply.error == nil ? reply.output : "Control error · click for details"
                     self.outputItem.isEnabled = reply.error != nil
-                    self.statusItem.button?.toolTip = reply.error ?? reply.output
+                    self.hardwareStatus = reply.error ?? reply.output
                     self.authorizeItem.title = self.connected ? "Controls enabled for this session" : (self.authProcess == nil ? "Enable fan controls…" : "Waiting for authorization…")
                     self.authorizeItem.isEnabled = !self.connected && self.authProcess == nil
                     if let error = reply.error, selected != nil { self.showError(error) }
                 case .failure(let error):
-                    self.statusItem.button?.title = " --°"
+                    self.latestTemperature = nil
                     self.temperatureItem.title = "Temperature unavailable"
                     self.outputItem.title = "\(error)"
-                    self.statusItem.button?.toolTip = "\(error)"
+                    self.hardwareStatus = "\(error)"
                 }
+                self.updateStatusDisplay()
                 self.updateGuardVisibility()
                 // Flush changes queued during an in-flight SMC operation,
                 // rather than waiting for the next UI polling timer.
@@ -423,6 +541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             check(guardOptionItems.allSatisfy { $0.isHidden == !guardSelected }, "Only Guard shows its options")
             check(controlTempItem.isHidden == !guardSelected, "Only Guard shows filtered temperature")
             check(modeItems[preset]?.state == .on, "The confirmed preset remains checked")
+            check(!memoryItem.isHidden && !pressureItem.isHidden, "Memory stays visible with every fan preset")
         }
         mode = .auto
         pending = .guardMode
@@ -447,6 +566,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         check(legal?.items.contains { $0.title == "GNU GPL v3.0 · No warranty" } == true, "Menu must display licensing and warranty notices")
         check(legal?.items.contains { $0.action == #selector(openLicense) && $0.target === self } == true, "License must be accessible from the menu")
         check(legal?.items.contains { $0.action == #selector(openSource) && $0.target === self } == true, "Source must be accessible from the menu")
+        let gib = UInt64(1 << 30)
+        latestTemperature = 53
+        applyMemory(MemorySnapshot(totalBytes: 24 * gib, usedBytes: 18 * gib + gib / 2,
+                                   compressedBytes: 2 * gib, swapUsedBytes: 3 * gib,
+                                   pressure: .normal, timestamp: ProcessInfo.processInfo.systemUptime))
+        let title = statusItem.button?.attributedTitle.string ?? ""
+        check(title.contains("53°") && title.contains("18.5/24 GB"), "Temperature and RAM must appear together")
+        check(pressureItem.title.contains("Normal"), "Pressure must use macOS state")
+        check(compressedItem.title.contains("2.0 GB") && swapItem.title.contains("3.0 GB"), "Menu must show compressed RAM and swap")
+        check(pressureHistoryView.history.samples.count == 1, "History must not invent samples before launch")
+        check(authProcess == nil && !connected, "Memory display must not authorize fan control")
+        check(pressureItem.submenu?.items.count == 6, "Pressure has explanations, not percentage thresholds")
+        latestTemperature = nil
+        updateStatusDisplay()
+        check(statusItem.button?.attributedTitle.string.contains("18.5/24 GB") == true, "Missing temperature must not hide memory")
+        latestTemperature = 53
+        latestMemory = nil
+        updateStatusDisplay()
+        check(statusItem.button?.attributedTitle.string.contains("53°") == true, "Missing memory must not hide temperature")
+        for pressure in MemoryPressure.allCases {
+            check(MemoryVisuals.badge(pressure).size == NSSize(width: 9, height: 9), "All pressure states need a visual indicator")
+        }
         checks += WelcomeWindowController.runSelfTest()
         NSStatusBar.system.removeStatusItem(statusItem)
         print("\(checks) native menu and welcome checks passed")
@@ -471,6 +612,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !terminating else { return .terminateLater }
         terminating = true
         timer?.invalidate()
+        memoryTimer?.invalidate()
         debounce?.cancel()
         guard connected else { return .terminateNow }
         let path = socketPath
@@ -497,6 +639,19 @@ if CommandLine.arguments.dropFirst().first == "--menu-self-test" {
     let menuTestDelegate = AppDelegate()
     menuTestDelegate.runMenuSelfTest()
     exit(0)
+}
+
+if CommandLine.arguments.dropFirst().first == "--memory-snapshot" {
+    do {
+        let snapshot = try LiveMemoryReader().read()
+        print("Memory: \(snapshot.compactUsage); pressure: \(snapshot.pressure.title)")
+        print("Compressed: \(MemoryFormat.gigabytes(snapshot.compressedBytes)) GB")
+        print("Swap used: \(snapshot.swapUsedBytes.map { MemoryFormat.gigabytes($0) + " GB" } ?? "Unavailable")")
+        exit(0)
+    } catch {
+        fputs("Memory: \(error.localizedDescription)\n", stderr)
+        exit(1)
+    }
 }
 
 if CommandLine.arguments.dropFirst().first == "--worker" {

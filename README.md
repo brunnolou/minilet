@@ -1,8 +1,8 @@
 # <img src="Resources/Minilet.png" width="128" alt="Minilet app icon"> Minilet 
 
-A native tiny macOS menu-bar fan controller for Apple Silicon Macs with fans. 
+A native tiny macOS menu-bar fan and memory monitor for Apple Silicon Macs with fans.
 
-Presets for fixed speeds, live temperature and RPM readings, and a temperature-driven Guard. 
+Presets for fixed speeds, live temperature and RPM readings, memory pressure, and a temperature-driven Guard.
 
 Built with Swift and AppKit, without third-party dependencies.
 
@@ -42,6 +42,12 @@ Minilet starts in read-only monitoring mode. Selecting a preset or clicking
 session controller runs until the app quits. Changing presets within that session
 does not prompt again. **No permanent daemon or sudoers exception is installed**.
 
+Memory and temperature monitoring do not require administrator permission.
+Fan approval currently lasts for the app session, not across relaunches. Persistent
+approval would require a separate installed privileged helper. Apple's modern
+`SMAppService` daemon route requires a notarized app; this ad-hoc build does not
+install that service or save your password.
+
 Each preset has its own native icon:
 
 - **Automatic** returns fan control to macOS.
@@ -57,6 +63,35 @@ those options immediately.
 
 Settings persist, including when migrating from the earlier Fan Menu prototype.
 Active presets never restart automatically on launch or after waking from sleep.
+
+## Memory monitoring
+
+Temperature and used/total RAM appear together in one menu-bar item, for example
+`53° · 18.5/24 GB`. A small indicator next to RAM shows macOS's actual memory
+pressure, not a percentage threshold:
+
+- Green circle: normal, memory demand is handled comfortably.
+- Yellow diamond: warning, memory is constrained; watch for sustained pressure.
+- Red triangle: critical, memory is a bottleneck; closing heavy apps may help.
+- Hollow grey circle: pressure could not be read. No estimate is invented.
+
+The menu shows used RAM, pressure explanations, compressed RAM, swap used, and a
+five-minute color timeline. History starts when Minilet launches and clears after
+sleep. Gaps without readings are not filled with guessed pressure. Text labels,
+tooltips and accessibility labels accompany the colors.
+
+Memory reads are unprivileged native Mach/sysctl calls every two seconds. They
+continue independently of slow fan-controller operations. A temperature error
+cannot hide RAM, and a memory error cannot hide temperature. No external commands,
+Python, admin authorization or process-by-process scanning are used for RAM.
+
+Used RAM excludes reclaimable file-backed and purgeable memory. Compressed RAM
+counts physical compressor storage. GB follows macOS memory tools' binary-unit
+convention. Values may differ slightly from Activity Monitor due to sampling and
+accounting. A high RAM percentage or existing swap alone is not evidence of trouble;
+pressure tells you whether macOS is struggling to satisfy memory demand.
+
+The menu can open Activity Monitor if you want to investigate individual apps.
 
 ## Temperature guard
 
@@ -160,8 +195,11 @@ Sources/App.swift          AppKit menu, authorization and settings
 Sources/Control.swift      Presets, curves and temperature regulation
 Sources/Hardware.swift     SMC access and IOHID thermal readings
 Sources/Worker.swift       Session worker, Unix-socket IPC and watchdog
+Sources/Memory.swift       Unprivileged RAM, pressure, swap and history
+Sources/MemoryUI.swift     Pressure indicators and timeline
 Sources/Welcome.swift      Welcome window, startup preference and support link
 Tests/ControllerTests.swift
+Tests/MemoryTests.swift
 Resources/Minilet.png      Source app icon
 Info.plist                 Bundle metadata
 build.sh                   Build, tests, signing and packaging
@@ -175,12 +213,14 @@ Run just the tests:
 ./build.sh --test
 ```
 
-There are 693 controller/IPC checks and 53 native menu/welcome checks. They run without
-fan writes or administrator authorization. Coverage includes curve bounds,
+There are 693 controller/IPC checks, 40 memory checks and 71 native menu/welcome
+checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
 monitoring without writes, presets, cleanup failures, icons and conditional menu
 visibility, welcome dismissal, isolated startup preferences and support actions.
+Memory checks cover page accounting, real pressure levels, unsupported readings,
+bounded history, independent readouts, accessible indicators and native API reads.
 
 The socket regression simulates a 2.5-second reply and verifies that accepted
 connections clear the nonblocking flag inherited from a macOS listener.

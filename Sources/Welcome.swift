@@ -51,7 +51,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         content.addSubview(heading)
 
         let instructions = NSTextField(wrappingLabelWithString:
-            "Look for the fan icon near the clock.\nClick it for temperatures and fan controls.")
+            "Look for the fan icon near the clock.\nClick it for temperatures, memory and fan controls.")
         instructions.font = .systemFont(ofSize: 13)
         instructions.textColor = .secondaryLabelColor
         instructions.alignment = .center

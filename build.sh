@@ -30,9 +30,9 @@ mkdir -p .build
 # Combine sources into a Swift entry point without external files or packages.
 python3 - <<'PY'
 from pathlib import Path
-shared = ['Sources/Hardware.swift', 'Sources/Control.swift', 'Sources/Worker.swift']
-entries = [('main.swift', ['Sources/Welcome.swift', 'Sources/App.swift']),
-           ('test-main.swift', ['Tests/ControllerTests.swift'])]
+shared = ['Sources/Hardware.swift', 'Sources/Control.swift', 'Sources/Worker.swift', 'Sources/Memory.swift']
+entries = [('main.swift', ['Sources/MemoryUI.swift', 'Sources/Welcome.swift', 'Sources/App.swift']),
+           ('test-main.swift', ['Tests/ControllerTests.swift', 'Tests/MemoryTests.swift'])]
 for name, files in entries:
     Path('.build', name).write_text('\n'.join(Path(f).read_text() for f in shared + files))
 PY
