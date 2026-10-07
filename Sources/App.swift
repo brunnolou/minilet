@@ -15,6 +15,8 @@ func appleScriptString(_ value: String) -> String {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
+    private lazy var fanIcon = makeFanIcon(opacity: 1)
+    private lazy var monitoringFanIcon = makeFanIcon(opacity: 0.5)
     private let menu = NSMenu()
     private let temperatureItem = NSMenuItem(title: "Reading temperature…", action: nil, keyEquivalent: "")
     private let speedItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -34,7 +36,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var memoryRefreshing = false
     private var modeItems: [FanMode: NSMenuItem] = [:]
     private var guardOptionItems: [NSMenuItem] = []
-    private let guardSettingsItem = NSMenuItem(title: "Guard settings", action: nil, keyEquivalent: "")
     private let guardSettingsMenu = NSMenu()
     private var hasControlTemperature = false
     private let curveMenuItem = NSMenuItem(title: "Curve", action: nil, keyEquivalent: "")
@@ -131,8 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controlTempItem.isHidden = true
         outputItem.isEnabled = false
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "fanblades", accessibilityDescription: "Minilet")
-        statusItem.button?.image?.isTemplate = true
+        statusItem.button?.image = monitoringFanIcon
         statusItem.button?.imagePosition = .imageLeading
         statusItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         statusItem.button?.attributedTitle = MemoryVisuals.statusTitle(temperature: nil, memory: nil)
@@ -145,8 +145,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(outputItem)
         menu.addItem(.separator())
         for preset in FanMode.allCases {
-            if preset == .guardMode { menu.addItem(.separator()) }
-            let item = NSMenuItem(title: preset.title, action: #selector(selectPreset(_:)), keyEquivalent: "")
+            let item = NSMenuItem(title: preset == .guardMode ? "Set temperature" : preset.title,
+                                  action: preset == .guardMode ? nil : #selector(selectPreset(_:)), keyEquivalent: "")
+            if preset == .guardMode { item.submenu = guardSettingsMenu }
             item.image = presetIcon(preset)
             item.target = self
             item.representedObject = preset.rawValue
@@ -154,9 +155,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(item)
         }
         guardSettingsMenu.autoenablesItems = false
-        guardSettingsItem.submenu = guardSettingsMenu
-        guardSettingsItem.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil)
-        menu.addItem(guardSettingsItem)
         let curveMenu = NSMenu()
         curveMenu.autoenablesItems = false
         for curve in CurveType.allCases {
@@ -269,6 +267,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.setAccessibilityLabel("Minilet. Temperature \(temperature). Memory \(usage). Pressure \(pressure). \(hardwareStatus)")
     }
 
+    private func makeFanIcon(opacity: CGFloat) -> NSImage? {
+        guard let source = NSImage(systemSymbolName: "fanblades", accessibilityDescription: "Minilet") else { return nil }
+        source.isTemplate = true
+        let image = NSImage(size: source.size, flipped: false) { rect in
+            source.draw(in: rect, from: .zero, operation: .sourceOver, fraction: opacity)
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
     private func presetIcon(_ preset: FanMode) -> NSImage? {
         let image = NSImage(systemSymbolName: preset.symbolName, accessibilityDescription: preset.title)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .regular))
@@ -283,12 +292,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateGuardVisibility() {
-        // Show options as soon as Guard is selected, including while waiting
-        // for authorization. A newly selected preset hides them immediately.
         let selected = pending ?? inFlightMode ?? mode
-        let showGuard = selected == .guardMode
-        guardSettingsItem.isHidden = !showGuard
-        controlTempItem.isHidden = !showGuard || !hasControlTemperature
+        controlTempItem.isHidden = selected != .guardMode || !hasControlTemperature
     }
 
     private func sliderItem(label: NSTextField, slider: NSSlider) -> NSMenuItem {
@@ -305,6 +310,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateSliderLabels() {
         targetLabel.stringValue = "Target temperature   \(Int(settings.target))°C"
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.tabStops = [NSTextTab(textAlignment: .right, location: 220)]
+        modeItems[.guardMode]?.attributedTitle = NSAttributedString(string: "Set temperature\t\(Int(settings.target))°C",
+            attributes: [.font: NSFont.menuFont(ofSize: 0), .paragraphStyle: paragraph])
         maxLabel.stringValue = "Speed cap   \(Int(settings.maxRPM)) RPM"
         rampItem.title = "Min RPM below \(Int(settings.target - 5))°C · cap at \(Int(settings.rampEndTemperature))°C"
     }
@@ -331,20 +340,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func saveAndApplySettings() {
         if let data = try? JSONEncoder().encode(settings) { UserDefaults.standard.set(data, forKey: "settings") }
         debounce?.cancel()
-        // Editing guard settings while monitoring doesn't prompt or start it.
-        if mode == .guardMode || pending == .guardMode {
-            let work = DispatchWorkItem { [weak self] in
-                self?.pending = .guardMode
-                self?.refresh()
-            }
-            debounce = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
-        }
+        let work = DispatchWorkItem { [weak self] in self?.requestPreset(.guardMode) }
+        debounce = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
     @objc private func selectPreset(_ item: NSMenuItem) {
         debounce?.cancel()
         guard let raw = item.representedObject as? String, let preset = FanMode(rawValue: raw) else { return }
+        requestPreset(preset)
+    }
+
+    private func requestPreset(_ preset: FanMode) {
         pending = preset
         updateGuardVisibility()
         if connected { refresh() }
@@ -462,6 +469,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateChecks() {
+        statusItem.button?.image = mode == nil ? monitoringFanIcon : fanIcon
         for (preset, item) in modeItems { item.state = preset == mode ? .on : .off }
         updateGuardVisibility()
     }
@@ -474,16 +482,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             precondition(condition, message)
         }
         createMenu()
+        check(statusItem.button?.image === monitoringFanIcon, "Monitoring starts with the dimmed fan icon")
+        check(statusItem.button?.alphaValue == 1, "Only the fan icon dims, not the temperature or RAM bar")
+        check(fanIcon?.isTemplate == true && monitoringFanIcon?.isTemplate == true, "Both fan states must follow the menu-bar appearance")
+        func meanAlpha(_ image: NSImage?) -> Double {
+            guard let image = image,
+                  let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 68, pixelsHigh: 64,
+                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+                  let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+                preconditionFailure("Fan icons must render")
+            }
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            image.draw(in: NSRect(x: 0, y: 0, width: 68, height: 64), from: .zero,
+                       operation: .sourceOver, fraction: 1)
+            NSGraphicsContext.restoreGraphicsState()
+            var alpha = 0.0
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide {
+                    alpha += Double(bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0)
+                }
+            }
+            return alpha / Double(bitmap.pixelsWide * bitmap.pixelsHigh)
+        }
+        let fullAlpha = meanAlpha(fanIcon)
+        check(fullAlpha > 0 && abs(meanAlpha(monitoringFanIcon) / fullAlpha - 0.5) < 0.02, "Monitoring fan pixels must have 50% opacity")
+        pending = .guardMode
+        updateChecks()
+        check(statusItem.button?.image === monitoringFanIcon, "Pending authorization must not brighten the fan before control is confirmed")
+        pending = nil
+        updateChecks()
         for preset in FanMode.allCases {
             check(modeItems[preset]?.image != nil, "Every preset needs a valid SF Symbol")
             check(modeItems[preset]?.image?.isTemplate == true, "Icons must follow the system appearance")
         }
-        let guardIndex = menu.index(of: modeItems[.guardMode]!)
-        check(menu.item(at: guardIndex - 1)?.isSeparatorItem == true, "Guard must have its own section")
-        check(guardIndex > menu.index(of: modeItems[.full]!), "Guard must follow fixed presets")
-        check(menu.index(of: memoryItem) > menu.index(of: guardSettingsItem), "Memory must follow the entire temperature and fan-control section")
+        let temperatureSetting = modeItems[.guardMode]!
+        let guardIndex = menu.index(of: temperatureSetting)
+        check(menu.item(at: guardIndex - 1) === modeItems[.full], "Set temperature must follow Full speed without a separator")
+        check(temperatureSetting.title.hasPrefix("Set temperature"), "Temperature control uses the requested menu label")
+        check(temperatureSetting.submenu === guardSettingsMenu && temperatureSetting.action != #selector(selectPreset(_:)), "Set temperature must open the submenu rather than run a closing action")
+        check(temperatureSetting.attributedTitle?.string == "Set temperature\t80°C", "The main menu must include the current target")
+        let targetParagraph = temperatureSetting.attributedTitle?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        check(targetParagraph?.tabStops.first?.alignment == .right, "The target must be right-aligned")
+        check(menu.index(of: memoryItem) > guardIndex, "Memory must follow the entire temperature and fan-control section")
         check(!menu.items.contains { $0.title == "Enable fan controls…" }, "Fan authorization must happen on demand without a separate menu action")
-        check(guardSettingsItem.isHidden, "Monitoring must hide Guard settings")
+        check(!temperatureSetting.isHidden && authProcess == nil, "Temperature settings stay accessible without activating control")
         check(guardOptionItems.allSatisfy { $0.menu === guardSettingsMenu }, "Guard options must belong to the settings submenu")
         check(!menu.items.contains { $0 === curveMenuItem || $0 === rampItem || $0 === controlTempItem || $0.view === targetSlider.superview || $0.view === maxSlider.superview }, "Guard settings and readings must not clutter the main menu")
         for preset in FanMode.allCases {
@@ -491,27 +535,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hasControlTemperature = true
             updateChecks()
             let guardSelected = preset == .guardMode
-            check(guardSettingsItem.isHidden == !guardSelected, "Only Guard shows its settings submenu")
+            check(!temperatureSetting.isHidden, "Temperature settings stay accessible with every fan preset")
             check(controlTempItem.isHidden == !guardSelected, "Only Guard shows filtered temperature")
             check(modeItems[preset]?.state == .on, "The confirmed preset remains checked")
+            check(statusItem.button?.image === fanIcon, "Confirmed presets must restore full fan-icon opacity")
             check(!memoryItem.isHidden && !pressureItem.isHidden, "Memory stays visible with every fan preset")
         }
         mode = .auto
         pending = .guardMode
         updateGuardVisibility()
-        check(!guardSettingsItem.isHidden, "Guard settings appear during authorization")
+        check(!controlTempItem.isHidden, "Filtered temperature appears while temperature control is requested")
         pending = nil
         inFlightMode = .guardMode
         updateGuardVisibility()
-        check(!guardSettingsItem.isHidden, "Guard settings stay visible while applying")
+        check(!controlTempItem.isHidden, "Filtered temperature stays visible while applying")
         pending = .high
         updateGuardVisibility()
-        check(guardSettingsItem.isHidden, "Selecting High hides Guard settings immediately")
+        check(controlTempItem.isHidden, "Selecting High hides the filtered temperature immediately")
         pending = nil
         inFlightMode = nil
         mode = nil
         updateChecks()
-        check(guardSettingsItem.isHidden, "Lost authorization hides Guard settings")
+        check(controlTempItem.isHidden && !temperatureSetting.isHidden, "Losing authorization hides filtered temperature but keeps settings accessible")
+        connected = true
+        refreshing = true
+        requestPreset(.guardMode)
+        check(pending == .guardMode && refreshRequested, "Editing temperature settings must request temperature control")
+        pending = nil
+        connected = false
+        refreshing = false
+        refreshRequested = false
+        check(statusItem.button?.image === monitoringFanIcon, "Losing fan control must dim the fan icon again")
         check(menu.items.contains { $0.title == "About Minilet" && $0.action == #selector(showWelcome) && $0.target === self }, "About Minilet opens the welcome window")
         check(!menu.items.contains { $0.title == "Buy me a coffee" }, "The main menu must not contain the coffee link")
         check(!applicationShouldTerminateAfterLastWindowClosed(NSApp), "Closing welcome must not quit the menu-bar app")

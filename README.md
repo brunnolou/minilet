@@ -54,12 +54,14 @@ Each preset has its own native icon:
 - **High** requests 5000 RPM.
 - **Extra high** requests 6000 RPM.
 - **Full speed** requests each fan's hardware maximum.
-- **Temperature guard** adjusts RPM continuously using temperature and the selected curve.
+- **Set temperature** opens temperature-control settings, with the current target
+  right-aligned in the main menu. Adjusting the target, speed cap or curve starts
+  continuous temperature control and requests authorization when needed.
+  Opening the submenu alone does not change the fans.
 
 Temperature readings and fan controls are grouped before the memory section.
-Guard stays selectable in the main menu. While selected, its curve, target,
-speed cap, ramp details and filtered temperature are in a "Guard settings" submenu.
-Selecting another preset hides that submenu.
+Temperature settings remain accessible with every preset. The filtered control
+temperature appears inside the submenu only while temperature control is selected.
 
 Settings persist, including when migrating from the earlier Fan Menu prototype.
 Active presets never restart automatically on launch or after waking from sleep.
@@ -67,6 +69,8 @@ Active presets never restart automatically on launch or after waking from sleep.
 ## Memory monitoring
 
 Temperature and a small rounded RAM-usage bar appear together in the menu bar.
+The fan icon is 50% opaque while monitoring only, and fully opaque with a confirmed
+fan preset. Temperature and RAM stay at full opacity.
 The fill represents physical RAM used, from 0–100%. Its color follows macOS memory
 pressure: system-neutral for Normal, yellow for Warning, red for Critical.
 
@@ -198,7 +202,7 @@ Run just the tests:
 ./build.sh --test
 ```
 
-There are 693 controller/IPC checks, 47 memory checks and 85 native menu/welcome
+There are 693 controller/IPC checks, 47 memory checks and 101 native menu/welcome
 checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
