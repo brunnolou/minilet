@@ -13,7 +13,7 @@ func appleScriptString(_ value: String) -> String {
         .replacingOccurrences(of: "\"", with: "\\\"") + "\""
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private lazy var fanIcon = makeFanIcon(opacity: 1)
     private lazy var monitoringFanIcon = makeFanIcon(opacity: 0.5)
@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let compressedItem = NSMenuItem(title: "Compressed   -- GB", action: nil, keyEquivalent: "")
     private let swapItem = NSMenuItem(title: "Swap used   -- GB", action: nil, keyEquivalent: "")
     private let pressureHistoryView = PressureHistoryView()
+    private let appMemoryMenu = AppMemoryMenuController()
     private let memoryQueue = DispatchQueue(label: "Minilet.memory", qos: .utility)
     private let memoryReader = LiveMemoryReader()
     private var memoryHistory = PressureHistory()
@@ -124,8 +125,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
     }
 
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === self.menu { appMemoryMenu.refresh() }
+    }
+
     private func createMenu() {
         menu.autoenablesItems = false
+        menu.delegate = self
         temperatureItem.isEnabled = false
         speedItem.isEnabled = false
         controlTempItem.isEnabled = false
@@ -212,6 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let history = NSMenuItem()
         history.view = pressureHistoryView
         menu.addItem(history)
+        menu.addItem(appMemoryMenu.item)
         let activity = NSMenuItem(title: "Open Activity Monitor…", action: #selector(openActivityMonitor), keyEquivalent: "")
         activity.target = self
         menu.addItem(activity)
@@ -608,6 +615,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else { preconditionFailure("Usage bar must render") }
         let historyOutline = MemoryVisuals.capsule(NSRect(x: 0, y: 0, width: 100, height: 10))
         check(!historyOutline.contains(NSPoint(x: 0.5, y: 0.5)) && historyOutline.contains(NSPoint(x: 50, y: 5)), "History uses a capsule outline for clipping its fills")
+        check(menu.items.contains { $0 === appMemoryMenu.item } && appMemoryMenu.item.submenu != nil, "Memory apps must live under a single submenu")
+        checks += AppMemoryMenuController.runSelfTest()
         checks += WelcomeWindowController.runSelfTest()
         NSStatusBar.system.removeStatusItem(statusItem)
         print("\(checks) native menu and welcome checks passed")

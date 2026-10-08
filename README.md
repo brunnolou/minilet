@@ -82,6 +82,21 @@ remain available in the menu-bar tooltip and accessibility label.
 Memory is sampled every two seconds with unprivileged native Mach/sysctl calls,
 independently of fan operations. The menu can open Activity Monitor.
 
+"Apps using memory" contains the ten largest identifiable apps, with app icons,
+memory footprints, relative usage bars and a Quit button for each. The largest
+app fills its bar; the others use the same scale. Helpers inside an app bundle
+and child processes are grouped under the owning app using macOS metadata and
+process ancestry, not a list of app names. Unattributed and OS infrastructure
+processes are omitted.
+
+Quit requests a normal app shutdown, allowing save prompts or cancellation.
+Minilet never force-quits helpers. App identity and process start time are checked
+again before quitting. App footprints include attributed compressed memory, so
+they do not sum to physical RAM or promise an exact amount freed by quitting.
+
+App scans run without administrator permission on a separate utility queue when
+the menu opens. Ranked rows do not reshuffle while the submenu is open.
+
 ## Temperature guard
 
 Guard reads the hottest usable Apple Silicon `tdie` sensor every five seconds.
@@ -202,7 +217,7 @@ Run just the tests:
 ./build.sh --test
 ```
 
-There are 693 controller/IPC checks, 47 memory checks and 101 native menu/welcome
+There are 693 controller/IPC checks, 47 memory checks, 26 app-memory grouping/identity checks and 113 native menu/welcome
 checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
@@ -210,7 +225,9 @@ monitoring without writes, presets, cleanup failures, icons and conditional menu
 visibility, welcome dismissal, isolated startup preferences and support actions.
 Memory checks cover page accounting, real pressure levels, unsupported readings,
 bounded history, usage ratios, rounded rendering, pressure colors, independent
-readouts, accessible indicators and native API reads.
+readouts, accessible indicators and native API reads. App-memory checks cover
+bundle ownership, nested helpers, parent chains, unknown processes, denied reads,
+ranking, relative bars, PID reuse and Quit button bindings.
 
 The socket regression simulates a 2.5-second reply and verifies that accepted
 connections clear the nonblocking flag inherited from a macOS listener.
