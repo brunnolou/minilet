@@ -94,8 +94,12 @@ Minilet never force-quits helpers. App identity and process start time are check
 again before quitting. App footprints include attributed compressed memory, so
 they do not sum to physical RAM or promise an exact amount freed by quitting.
 
-App scans run without administrator permission on a separate utility queue when
-the menu opens. Ranked rows do not reshuffle while the submenu is open.
+App scans run without administrator permission on a separate utility queue each
+time the apps submenu opens, even if the main menu stays open. Values and bars
+refresh every two seconds while the submenu is open. Closed apps show "Closed"
+and disable Quit on the next sample. Rows keep their original app identity and position
+under the pointer; reopening the submenu refreshes the ranking and removes closed
+apps. Sampling stops when the submenu closes.
 
 ## Temperature guard
 
@@ -217,7 +221,7 @@ Run just the tests:
 ./build.sh --test
 ```
 
-There are 693 controller/IPC checks, 47 memory checks, 26 app-memory grouping/identity checks and 113 native menu/welcome
+There are 693 controller/IPC checks, 47 memory checks, 28 app-memory grouping/identity checks and 121 native menu/welcome
 checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
@@ -227,7 +231,8 @@ Memory checks cover page accounting, real pressure levels, unsupported readings,
 bounded history, usage ratios, rounded rendering, pressure colors, independent
 readouts, accessible indicators and native API reads. App-memory checks cover
 bundle ownership, nested helpers, parent chains, unknown processes, denied reads,
-ranking, relative bars, PID reuse and Quit button bindings.
+ranking, relative bars, PID reuse, Quit button bindings, live value updates,
+closed-app states and submenu polling lifecycle.
 
 The socket regression simulates a 2.5-second reply and verifies that accepted
 connections clear the nonblocking flag inherited from a macOS listener.

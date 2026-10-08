@@ -75,6 +75,10 @@ for i in 0..<15 {
 }
 let topTen = AppMemoryGrouping.group(apps: manyApps, processes: manyProcesses, uid: appMemoryUID)
 check(topTen.count == 10 && topTen.first?.bytes == 15 && topTen.last?.bytes == 6, "Keep the ten largest apps")
+let allApps = AppMemoryGrouping.group(apps: manyApps, processes: manyProcesses, uid: appMemoryUID, limit: nil)
+check(allApps.count == 15 && allApps.last?.bytes == 1, "Live scans retain apps that drop below the displayed top ten")
+check(AppMemoryGrouping.group(apps: manyApps, processes: manyProcesses, uid: appMemoryUID, limit: 0).isEmpty,
+      "A zero limit must not display any apps")
 check(AppMemoryGrouping.group(apps: [], processes: manyProcesses, uid: appMemoryUID).isEmpty, "No recognizable apps means no actionable rows")
 check(AppMemoryUsage(name: "x", bundlePath: "x", bytes: 1 << 30, quitTargets: []).formattedBytes == "1.0 GB", "Use binary GB for larger app footprints")
 check(AppMemoryUsage(name: "x", bundlePath: "x", bytes: 10 << 20, quitTargets: []).formattedBytes == "10 MB", "Use readable MB for small apps")

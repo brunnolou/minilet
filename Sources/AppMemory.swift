@@ -59,7 +59,8 @@ enum AppMemoryGrouping {
         !bundle.isEmpty && executable.hasPrefix(bundle + "/")
     }
 
-    static func group(apps: [MemoryAppIdentity], processes: [MemoryProcess], uid: UInt32) -> [AppMemoryUsage] {
+    static func group(apps: [MemoryAppIdentity], processes: [MemoryProcess], uid: UInt32,
+                      limit: Int? = AppMemoryGrouping.limit) -> [AppMemoryUsage] {
         var byPID: [Int32: MemoryProcess] = [:]
         for process in processes where process.uid == uid { byPID[process.stamp.pid] = process }
         // Only a verified running app is an owner. A helper's bundle metadata
@@ -100,7 +101,7 @@ enum AppMemoryGrouping {
             let sum = (totals[bundle] ?? 0).addingReportingOverflow(footprint)
             totals[bundle] = sum.overflow ? .max : sum.partialValue
         }
-        return totals.compactMap { bundle, bytes -> AppMemoryUsage? in
+        let ranked = totals.compactMap { bundle, bytes -> AppMemoryUsage? in
             guard let instances = appsByBundle[bundle], let app = instances.first else { return nil }
             let targets = instances.compactMap { instance -> MemoryQuitTarget? in
                 guard let process = byPID[instance.pid] else { return nil }
@@ -111,7 +112,8 @@ enum AppMemoryGrouping {
             if $0.bytes != $1.bytes { return $0.bytes > $1.bytes }
             let names = $0.name.localizedStandardCompare($1.name)
             return names == .orderedSame ? $0.bundlePath < $1.bundlePath : names == .orderedAscending
-        }.prefix(limit).map { $0 }
+        }
+        return limit.map { Array(ranked.prefix(max(0, $0))) } ?? ranked
     }
 }
 
@@ -139,7 +141,7 @@ struct LiveAppMemoryReader {
                              executablePath: executable, footprint: result == 0 ? usage.ri_phys_footprint : nil)
     }
 
-    func read(apps: [MemoryAppIdentity]) throws -> [AppMemoryUsage] {
+    func read(apps: [MemoryAppIdentity], limit: Int? = AppMemoryGrouping.limit) throws -> [AppMemoryUsage] {
         let count = proc_listallpids(nil, 0)
         guard count > 0 else { throw MemoryReadError.unavailable("Cannot read running apps") }
         var pids = [Int32](repeating: 0, count: Int(count) + 1024)
@@ -150,6 +152,6 @@ struct LiveAppMemoryReader {
             guard pid > 0, let process = Self.process(pid), process.uid == uid else { return nil }
             return process
         }
-        return AppMemoryGrouping.group(apps: apps, processes: processes, uid: uid)
+        return AppMemoryGrouping.group(apps: apps, processes: processes, uid: uid, limit: limit)
     }
 }

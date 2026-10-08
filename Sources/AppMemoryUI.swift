@@ -5,11 +5,16 @@
 import AppKit
 
 final class AppMemoryBarView: NSView {
-    let fraction: Double
+    private(set) var fraction = 0.0
 
     init(fraction: Double, frame: NSRect) {
-        self.fraction = fraction.isFinite ? min(1, max(0, fraction)) : 0
         super.init(frame: frame)
+        update(fraction: fraction)
+    }
+
+    func update(fraction: Double) {
+        self.fraction = fraction.isFinite ? min(1, max(0, fraction)) : 0
+        needsDisplay = true
     }
 
     required init?(coder: NSCoder) { fatalError("Use init(fraction:frame:)") }
@@ -30,6 +35,9 @@ final class AppMemoryRowView: NSView {
     let usage: AppMemoryUsage
     let quitButton = NSButton(title: "Quit", target: nil, action: nil)
     let bar: AppMemoryBarView
+    private let memory = NSTextField(labelWithString: "")
+    private var quitRequested = false
+    var memoryText: String { memory.stringValue }
     private let onQuit: (AppMemoryUsage) -> Void
 
     init(usage: AppMemoryUsage, largest: UInt64, onQuit: @escaping (AppMemoryUsage) -> Void) {
@@ -47,7 +55,7 @@ final class AppMemoryRowView: NSView {
         name.lineBreakMode = .byTruncatingTail
         name.frame = NSRect(x: 49, y: 25, width: 160, height: 19)
         addSubview(name)
-        let memory = NSTextField(labelWithString: usage.formattedBytes)
+        memory.stringValue = usage.formattedBytes
         memory.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         memory.alignment = .right
         memory.textColor = .secondaryLabelColor
@@ -68,9 +76,27 @@ final class AppMemoryRowView: NSView {
 
     required init?(coder: NSCoder) { fatalError("Use init(usage:largest:onQuit:)") }
 
+    func update(_ current: AppMemoryUsage?, largest: UInt64, stillRunning: Bool) {
+        if let current = current {
+            memory.stringValue = current.formattedBytes
+            bar.update(fraction: current.fraction(relativeTo: largest))
+            let sameInstance = current.quitTargets.contains { live in
+                usage.quitTargets.contains { original in
+                    original.stamp == live.stamp && original.executablePath == live.executablePath
+                }
+            }
+            quitButton.isEnabled = sameInstance && !quitRequested
+        } else {
+            memory.stringValue = stillRunning ? "Unavailable" : "Closed"
+            bar.update(fraction: 0)
+            quitButton.isEnabled = false
+        }
+        setAccessibilityLabel("\(usage.name), \(memory.stringValue)")
+    }
+
     @objc private func quitApp() {
-        // The row keeps its original app identity even if a scan finishes while
-        // the pointer is over Quit. No index-based lookup or force termination.
+        // Live values may change, but a tracked row never changes its Quit target.
+        quitRequested = true
         quitButton.isEnabled = false
         onQuit(usage)
     }
@@ -80,13 +106,20 @@ final class AppMemoryMenuController: NSObject, NSMenuDelegate {
     let item = NSMenuItem(title: "Apps using memory", action: nil, keyEquivalent: "")
     let menu = NSMenu()
     private let queue = DispatchQueue(label: "Minilet.app-memory", qos: .utility)
-    private let reader = LiveAppMemoryReader()
+    private let readApps: ([MemoryAppIdentity]) throws -> [AppMemoryUsage]
     private var refreshing = false
+    private var refreshRequested = false
     private var tracking = false
     private var hasRows = false
-    private var deferred: Result<[AppMemoryUsage], Error>?
+    private var timer: Timer?
+    private var latest: Result<[AppMemoryUsage], Error>?
 
-    override init() {
+    override convenience init() {
+        self.init(readApps: { try LiveAppMemoryReader().read(apps: $0, limit: nil) })
+    }
+
+    init(readApps: @escaping ([MemoryAppIdentity]) throws -> [AppMemoryUsage]) {
+        self.readApps = readApps
         super.init()
         menu.autoenablesItems = false
         menu.delegate = self
@@ -94,6 +127,8 @@ final class AppMemoryMenuController: NSObject, NSMenuDelegate {
         item.image = NSImage(systemSymbolName: "app.stack", accessibilityDescription: nil)
         showMessage("Reading apps…")
     }
+
+    deinit { timer?.invalidate() }
 
     static func runningApps() -> [MemoryAppIdentity] {
         NSWorkspace.shared.runningApplications.compactMap { app in
@@ -114,29 +149,38 @@ final class AppMemoryMenuController: NSObject, NSMenuDelegate {
     }
 
     func refresh() {
-        guard !refreshing else { return }
+        guard !refreshing else { refreshRequested = true; return }
         refreshing = true
+        refreshRequested = false
         let apps = Self.runningApps()
         queue.async { [weak self] in
             guard let self = self else { return }
-            let result = Result { try self.reader.read(apps: apps) }
-            DispatchQueue.main.async {
+            let result = Result { try self.readApps(apps) }
+            // Deliver in menu tracking mode, not only when the normal app loop resumes.
+            RunLoop.main.perform(inModes: [.common, .eventTracking]) {
                 self.refreshing = false
-                // Do not reshuffle actionable rows under the user's pointer.
-                if self.tracking && self.hasRows { self.deferred = result }
-                else { self.apply(result) }
+                self.apply(result)
+                if self.refreshRequested && self.tracking { self.refresh() }
             }
         }
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) { refresh() }
-    func menuWillOpen(_ menu: NSMenu) { tracking = true }
+    func menuWillOpen(_ menu: NSMenu) {
+        // This fires even when reopening only the child menu in the same root session.
+        tracking = true
+        timer?.invalidate()
+        let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        RunLoop.main.add(timer, forMode: .eventTracking)
+        refresh()
+    }
     func menuDidClose(_ menu: NSMenu) {
         tracking = false
-        if let result = deferred {
-            deferred = nil
-            apply(result)
-        }
+        timer?.invalidate()
+        timer = nil
+        if let result = latest { render(result) }
     }
 
     private func showMessage(_ title: String) {
@@ -148,6 +192,26 @@ final class AppMemoryMenuController: NSObject, NSMenuDelegate {
     }
 
     func apply(_ result: Result<[AppMemoryUsage], Error>) {
+        latest = result
+        guard tracking && hasRows else { render(result); return }
+        let apps: [AppMemoryUsage]
+        switch result {
+        case .success(let values): apps = values
+        case .failure: apps = []
+        }
+        let byBundle = Dictionary(apps.map { ($0.bundlePath, $0) }, uniquingKeysWith: { first, _ in first })
+        let largest = apps.map { $0.bytes }.max() ?? 0
+        for item in menu.items {
+            guard let row = item.view as? AppMemoryRowView else { continue }
+            let running = row.usage.quitTargets.contains { target in
+                guard let app = NSRunningApplication(processIdentifier: target.stamp.pid) else { return false }
+                return !app.isTerminated && app.bundleURL?.resolvingSymlinksInPath().path == target.bundlePath
+            }
+            row.update(byBundle[row.usage.bundlePath], largest: largest, stillRunning: running)
+        }
+    }
+
+    private func render(_ result: Result<[AppMemoryUsage], Error>) {
         switch result {
         case .failure: showMessage("App memory unavailable")
         case .success(let apps):
@@ -191,7 +255,7 @@ final class AppMemoryMenuController: NSObject, NSMenuDelegate {
             checks += 1
             precondition(condition, message)
         }
-        let controller = AppMemoryMenuController()
+        let controller = AppMemoryMenuController(readApps: { _ in [] })
         check(controller.item.submenu === controller.menu, "App memory belongs in a submenu")
         check(controller.menu.items.count == 1 && !controller.menu.items[0].isEnabled, "Initial state is a disabled reading row")
         let apps = (0..<12).map { index in
@@ -209,11 +273,42 @@ final class AppMemoryMenuController: NSObject, NSMenuDelegate {
         row.quitButton.performClick(nil)
         check(requested == apps[0].bundlePath && !row.quitButton.isEnabled, "Quit is bound to the original app, not its row index")
         controller.tracking = true
-        controller.hasRows = true
-        controller.deferred = .success(Array(apps.reversed()))
-        check(controller.menu.items.first?.title == apps[0].name, "Queued updates cannot reorder a tracked menu")
+        let reduced = AppMemoryUsage(name: apps[0].name, bundlePath: apps[0].bundlePath,
+                                     bytes: 1 << 30, quitTargets: [])
+        let updated = Array(apps.dropFirst()) + [reduced]
+        controller.apply(.success(updated))
+        check(controller.menu.items.first?.title == apps[0].name && controller.menu.items.first?.view === rows[0], "Live scans cannot move or replace Quit rows under the pointer")
+        check(rows[0].memoryText == "1.0 GB" && abs(rows[0].bar.fraction - 1.0 / 11) < 1e-10, "Live values and bars must update even when an app falls outside the new top ten")
+        controller.apply(.success(Array(updated.dropFirst())))
+        check(rows[1].memoryText == "Closed" && !rows[1].quitButton.isEnabled && rows[1].bar.fraction == 0, "Exited apps must immediately show Closed and disable Quit")
         controller.menuDidClose(controller.menu)
-        check(controller.menu.items.first?.title == apps.last?.name, "Deferred results apply after tracking ends")
+        check(controller.menu.items.first?.title == apps[2].name, "Latest ranking applies when the child menu closes, without closing the root menu")
+        check(controller.timer == nil && !controller.tracking, "Closing the submenu stops its live timer")
+        controller.refreshing = true
+        let cachedView = controller.menu.items.first?.view
+        controller.menuWillOpen(controller.menu)
+        check(controller.menu.items.first?.view === cachedView, "Will-open must not rebuild cached items while AppKit is opening the submenu")
+        check(controller.timer?.isValid == true && controller.refreshRequested, "Each submenu opening starts live polling and requests a fresh scan, even with a scan in flight")
+        controller.menuDidClose(controller.menu)
+        controller.refreshing = false
+        controller.refreshRequested = false
+        let originalTarget = MemoryQuitTarget(stamp: MemoryProcessStamp(pid: 99, seconds: 10, microseconds: 0),
+                                               bundlePath: apps[0].bundlePath, executablePath: "/sample/app")
+        let original = AppMemoryUsage(name: apps[0].name, bundlePath: apps[0].bundlePath,
+                                      bytes: 8 << 30, quitTargets: [originalTarget])
+        let identityRow = AppMemoryRowView(usage: original, largest: original.bytes) { _ in }
+        identityRow.update(original, largest: original.bytes, stillRunning: true)
+        check(identityRow.quitButton.isEnabled, "Live updates preserve Quit for the same app instance")
+        let replacementTarget = MemoryQuitTarget(stamp: MemoryProcessStamp(pid: 99, seconds: 11, microseconds: 0),
+                                                  bundlePath: originalTarget.bundlePath, executablePath: originalTarget.executablePath)
+        let replacement = AppMemoryUsage(name: original.name, bundlePath: original.bundlePath,
+                                         bytes: 2 << 30, quitTargets: [replacementTarget])
+        identityRow.update(replacement, largest: 8 << 30, stillRunning: true)
+        check(!identityRow.quitButton.isEnabled && identityRow.usage.quitTargets[0].stamp == originalTarget.stamp,
+              "A restarted app cannot replace the tracked row's Quit identity")
+        identityRow.update(nil, largest: 0, stillRunning: true)
+        check(identityRow.memoryText == "Unavailable" && !identityRow.quitButton.isEnabled,
+              "Unreadable memory must not label a still-running app Closed")
         controller.apply(.success([]))
         check(controller.menu.items.count == 1 && !controller.menu.items[0].isEnabled, "Empty reads do not invent zero-memory apps")
         controller.apply(.failure(MemoryReadError.unavailable("test")))
