@@ -116,13 +116,14 @@ apps. Sampling stops when the submenu closes.
 ## CPU and GPU meters
 
 Two rows of tiny squares sit below the RAM bar, without widening the menu-bar
-item. Each row has eleven 2×2-point squares with 1-point gaps, matching the RAM
-bar's 32-point width. The whole stack is 14 points high. CPU is the middle row;
-GPU is the bottom row.
+item. Each row has eight 3×3-point squares with 1-point gaps, centered within the
+RAM bar's 32-point width. RAM is 4 points high; the whole stack is 12 points high.
+CPU is the middle row; GPU is the bottom row.
 
-CPU cores overlap across the row. If every core is at 10%, the first 10% is
-opaque. If one of twelve cores is at 100%, the whole row has 1/12 opacity.
-Fractional edge squares preserve usage between square boundaries. Unused squares
+CPU cores overlap across the row. Each core contributes 1/core-count opacity
+along its own usage-length prefix. If one of twelve cores is at 100%, the whole
+row has 1/12 opacity. Fractional edge squares preserve usage between square
+boundaries. Unused squares
 use the inverse light/dark theme color so the row's full length stays visible.
 
 CPU uses per-core Mach counter deltas, not boot-to-date averages. GPU uses the
@@ -256,7 +257,7 @@ Run just the tests:
 ```
 
 There are 845 controller/IPC checks, 47 memory checks, 28 app-memory grouping/identity
-checks, 51 processor checks and 312 native menu/welcome checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
+checks, 51 processor checks and 288 native menu/welcome checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
 monitoring without writes, presets, cleanup failures, icons and conditional menu

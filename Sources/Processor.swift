@@ -66,7 +66,7 @@ struct ProcessorSampler {
 }
 
 enum ProcessorTiles {
-    static let count = 11
+    static let count = 8
 
     static func opacities(_ usages: [Double]?, count: Int = count) -> [Double] {
         guard count > 0 else { return [] }

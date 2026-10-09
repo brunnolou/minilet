@@ -6,19 +6,20 @@ import AppKit
 
 enum StatusMeters {
     static let width: CGFloat = 32
-    static let height: CGFloat = 14
-    static let squareSize: CGFloat = 2
+    static let height: CGFloat = 12
+    static let squareSize: CGFloat = 3
     static let gap: CGFloat = 1
+    static let insetX = (width - (CGFloat(ProcessorTiles.count) * (squareSize + gap) - gap)) / 2
 
     static func image(memory: MemorySnapshot?, processors: ProcessorSnapshot?) -> NSImage {
         let ram = MemoryVisuals.usageBar(fraction: memory?.usageFraction, pressure: memory?.pressure ?? .unknown)
         let cpu = ProcessorTiles.opacities(processors?.cpu)
         let gpu = ProcessorTiles.opacities(processors?.gpu.map { [$0] })
         return NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
-            ram.draw(in: NSRect(x: 0, y: 6, width: width, height: 8), from: .zero, operation: .sourceOver, fraction: 1)
+            ram.draw(in: NSRect(x: 0, y: 8, width: width, height: 4), from: .zero, operation: .sourceOver, fraction: 1)
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current?.shouldAntialias = false
-            drawSquares(cpu, at: 3)
+            drawSquares(cpu, at: 4)
             drawSquares(gpu, at: 0)
             NSGraphicsContext.restoreGraphicsState()
             return true
@@ -32,7 +33,7 @@ enum StatusMeters {
             let color = opacity > 0 ? NSColor.labelColor.withAlphaComponent(opacity)
                                     : NSColor.textBackgroundColor.withAlphaComponent(0.45)
             color.setFill()
-            NSRect(x: CGFloat(index) * (squareSize + gap), y: y, width: squareSize, height: squareSize).fill()
+            NSRect(x: insetX + CGFloat(index) * (squareSize + gap), y: y, width: squareSize, height: squareSize).fill()
         }
     }
 
@@ -46,46 +47,46 @@ enum StatusMeters {
         let noLoad = ProcessorSnapshot(cpu: Array(repeating: 0, count: 12), gpu: 0)
         let fullLoad = ProcessorSnapshot(cpu: Array(repeating: 1, count: 12), gpu: 1)
         func bitmap(_ processors: ProcessorSnapshot, appearance: NSAppearance.Name) -> NSBitmapImageRep {
-            let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 64, pixelsHigh: 28,
+            let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 64, pixelsHigh: 24,
                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                 colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
             NSAppearance(named: appearance)!.performAsCurrentDrawingAppearance {
-                image(memory: nil, processors: processors).draw(in: NSRect(x: 0, y: 0, width: 64, height: 28),
+                image(memory: nil, processors: processors).draw(in: NSRect(x: 0, y: 0, width: 64, height: 24),
                     from: .zero, operation: .sourceOver, fraction: 1)
             }
             NSGraphicsContext.restoreGraphicsState()
             return bitmap
         }
-        check(CGFloat(ProcessorTiles.count) * squareSize + CGFloat(ProcessorTiles.count - 1) * gap == width,
-              "Eleven 2x2 squares and ten 1px gaps match the 32px RAM width")
-        check(image(memory: nil, processors: oneCore).size == NSSize(width: 32, height: 14),
-              "All three meters fit in a fourteen-point stack")
+        check(CGFloat(ProcessorTiles.count) * squareSize + CGFloat(ProcessorTiles.count - 1) * gap + insetX * 2 == width && insetX == 0.5,
+              "Eight 3x3 squares and seven 1px gaps are centered within the 32px RAM width")
+        check(image(memory: nil, processors: oneCore).size == NSSize(width: 32, height: 12),
+              "All three meters fit in a twelve-point stack")
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             let one = bitmap(oneCore, appearance: appearance)
             let empty = bitmap(noLoad, appearance: appearance)
             let full = bitmap(fullLoad, appearance: appearance)
-            for tile in 0..<11 {
-                let x = tile * 6 + 1
-                check(abs((one.colorAt(x: x, y: 19)?.alphaComponent ?? 0) - 1 / 12.0) < 0.01,
+            for tile in 0..<ProcessorTiles.count {
+                let x = tile * 8 + 2
+                check(abs((one.colorAt(x: x, y: 13)?.alphaComponent ?? 0) - 1 / 12.0) < 0.01,
                       "One busy CPU core fills every square at exactly 1/12 opacity")
-                check((full.colorAt(x: x, y: 19)?.alphaComponent ?? 0) > 0.99,
+                check((full.colorAt(x: x, y: 13)?.alphaComponent ?? 0) > 0.99,
                       "All busy cores fill every CPU square opaquely")
-                check((empty.colorAt(x: x, y: 19)?.alphaComponent ?? 0) > 0.4,
+                check((empty.colorAt(x: x, y: 13)?.alphaComponent ?? 0) > 0.4,
                       "Unused squares retain a visible full-width track")
-                if tile < 10 {
-                    check((one.colorAt(x: x + 3, y: 19)?.alphaComponent ?? 1) == 0,
+                if tile < ProcessorTiles.count - 1 {
+                    check((one.colorAt(x: x + 5, y: 13)?.alphaComponent ?? 1) == 0,
                           "One-point gaps remain transparent")
                 }
             }
-            check((one.colorAt(x: 1, y: 23)?.alphaComponent ?? 1) == 0 && (one.colorAt(x: 1, y: 17)?.alphaComponent ?? 1) == 0,
+            check((one.colorAt(x: 2, y: 17)?.alphaComponent ?? 1) == 0 && (one.colorAt(x: 2, y: 9)?.alphaComponent ?? 1) == 0,
                   "CPU, GPU and RAM rows have one-point vertical gaps")
-            check((one.colorAt(x: 1, y: 26)?.alphaComponent ?? 0) > 0.99,
+            check((one.colorAt(x: 2, y: 21)?.alphaComponent ?? 0) > 0.99,
                   "GPU aggregate usage fills its own row")
         }
-        let light = bitmap(noLoad, appearance: .aqua).colorAt(x: 1, y: 19)!.usingColorSpace(.deviceRGB)!
-        let dark = bitmap(noLoad, appearance: .darkAqua).colorAt(x: 1, y: 19)!.usingColorSpace(.deviceRGB)!
+        let light = bitmap(noLoad, appearance: .aqua).colorAt(x: 2, y: 13)!.usingColorSpace(.deviceRGB)!
+        let dark = bitmap(noLoad, appearance: .darkAqua).colorAt(x: 2, y: 13)!.usingColorSpace(.deviceRGB)!
         check(light.redComponent > dark.redComponent, "The unfilled track inverts between light and dark appearance")
         return checks
     }

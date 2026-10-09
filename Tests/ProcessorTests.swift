@@ -30,17 +30,17 @@ processorCheck(processorSampler.sample([], at: 14) == nil && processorSampler.sa
                "Invalid CPU samples stay unavailable")
 for load in [0.0, 0.1, 0.5, 1] {
     let row = ProcessorTiles.opacities(Array(repeating: load, count: 12))
-    processorCheck(row.count == 11, "CPU has eleven squares")
-    processorCheck(abs(row.reduce(0, +) / 11 - load) < 0.000001, "Fractional edge squares preserve the average area")
+    processorCheck(row.count == 8, "CPU has eight squares")
+    processorCheck(abs(row.reduce(0, +) / Double(ProcessorTiles.count) - load) < 0.000001, "Fractional edge squares preserve the average area")
     processorCheck(zip(row, row.dropFirst()).allSatisfy { $0 >= $1 }, "Overlapped CPU prefixes never increase towards the right")
 }
 let tenPercentRow = ProcessorTiles.opacities(Array(repeating: 0.1, count: 12))
-processorCheck(tenPercentRow[0] == 1 && abs(tenPercentRow[1] - 0.1) < 0.000001 && tenPercentRow.dropFirst(2).allSatisfy { $0 == 0 },
-               "All cores at ten percent fill only the first ten percent opaquely, with one fractional edge")
+processorCheck(abs(tenPercentRow[0] - 0.8) < 0.000001 && tenPercentRow.dropFirst().allSatisfy { $0 == 0 },
+               "Ten-percent CPU usage occupies only the first fractional square in an eight-square row")
 let singleCoreRow = ProcessorTiles.opacities([1] + Array(repeating: 0, count: 11))
 processorCheck(singleCoreRow.allSatisfy { abs($0 - 1 / 12.0) < 0.000001 }, "One fully busy core gives a full-width row at 1/12 alpha")
 let splitRow = ProcessorTiles.opacities([1, 0.5, 0, 0])
-processorCheck(splitRow[0] == 0.5 && splitRow[10] == 0.25, "Mixed cores create layered opacity, not an averaged progress bar")
+processorCheck(splitRow[0] == 0.5 && splitRow[7] == 0.25, "Mixed cores create layered opacity, not an averaged progress bar")
 for invalid: [Double]? in [nil, [], [.nan], [.infinity], [-0.1], [1.1]] {
     processorCheck(ProcessorTiles.opacities(invalid).allSatisfy { $0 == 0 }, "Invalid usage uses only the track")
 }

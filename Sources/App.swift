@@ -646,8 +646,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         check(MemoryVisuals.color(.warning).isEqual(NSColor.systemYellow), "Warning pressure must use yellow")
         check(MemoryVisuals.color(.critical).isEqual(NSColor.systemRed), "Critical pressure must use red")
         let fullBar = MemoryVisuals.usageBar(fraction: 1, pressure: .normal)
-        check(fullBar.size.height == 8 && barAttachment()?.bounds == NSRect(x: 0, y: -5, width: 32, height: 14),
-              "The RAM bar stays 8px tall while the CPU/GPU stack fits below it")
+        check(fullBar.size.height == 4 && barAttachment()?.bounds == NSRect(x: 0, y: -5, width: 32, height: 12),
+              "The RAM bar is 4px tall and the complete CPU/GPU stack is 12px tall")
         checks += StatusMeters.runSelfTest()
         latestProcessors = ProcessorSnapshot(cpu: [1] + Array(repeating: 0, count: 11), gpu: 0.5)
         updateStatusDisplay()
@@ -658,7 +658,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         check(latestProcessors == nil && processorGeneration > generationBeforeReset,
               "Sleep and wake reject stale CPU/GPU results and reset their baseline")
         if let data = fullBar.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data) {
-            check((bitmap.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.05, "Filled bars must retain transparent rounded corners")
+            check((bitmap.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.4, "Short filled bars must retain rounded, translucent antialiased corners")
             check((bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0) > 0.95, "Full usage must fill the bar center")
         } else { preconditionFailure("Usage bar must render") }
         let historyOutline = MemoryVisuals.capsule(NSRect(x: 0, y: 0, width: 100, height: 10))

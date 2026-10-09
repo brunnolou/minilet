@@ -48,8 +48,8 @@ enum MemoryVisuals {
     }
 
     static func usageBar(fraction: Double?, pressure: MemoryPressure) -> NSImage {
-        NSImage(size: NSSize(width: 32, height: 8), flipped: false) { _ in
-            let track = NSRect(x: 0.5, y: 0.5, width: 31, height: 7)
+        NSImage(size: NSSize(width: 32, height: 4), flipped: false) { _ in
+            let track = NSRect(x: 0.5, y: 0.5, width: 31, height: 3)
             let outline = capsule(track)
             NSColor.labelColor.withAlphaComponent(0.16).setFill()
             outline.fill()
@@ -73,8 +73,8 @@ enum MemoryVisuals {
                          .foregroundColor: NSColor.labelColor])
         let attachment = NSTextAttachment()
         attachment.image = StatusMeters.image(memory: memory, processors: processors)
-        // Keep the RAM bar at its existing baseline; new rows occupy the space below it.
-        attachment.bounds = NSRect(x: 0, y: -5, width: 32, height: 14)
+        // Preserve the RAM bar's center while the whole stack gets shorter.
+        attachment.bounds = NSRect(x: 0, y: -5, width: 32, height: 12)
         result.append(NSAttributedString(attachment: attachment))
         return result
     }
