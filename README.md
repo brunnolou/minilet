@@ -113,6 +113,25 @@ and disable Quit on the next sample. Rows keep their original app identity and p
 under the pointer; reopening the submenu refreshes the ranking and removes closed
 apps. Sampling stops when the submenu closes.
 
+## CPU and GPU meters
+
+Two rows of tiny squares sit below the RAM bar, without widening the menu-bar
+item. Each row has eleven 2×2-point squares with 1-point gaps, matching the RAM
+bar's 32-point width. The whole stack is 14 points high. CPU is the middle row;
+GPU is the bottom row.
+
+CPU cores overlap across the row. If every core is at 10%, the first 10% is
+opaque. If one of twelve cores is at 100%, the whole row has 1/12 opacity.
+Fractional edge squares preserve usage between square boundaries. Unused squares
+use the inverse light/dark theme color so the row's full length stays visible.
+
+CPU uses per-core Mach counter deltas, not boot-to-date averages. GPU uses the
+AGX driver's aggregate Device Utilization percentage, not invented per-GPU-core
+values. Both are sampled with RAM every two seconds without fan authorization.
+The existing tooltip and accessibility label include measured CPU/GPU values.
+The first CPU reading establishes a baseline; sleep, long gaps and topology
+changes reset it. Missing readings are marked Unavailable, not zero.
+
 ## Temperature guard
 
 Guard reads the hottest usable Apple Silicon `tdie` sensor every five seconds.
@@ -217,6 +236,8 @@ Sources/FanPresetUI.swift  Inline speed and temperature sliders, variable fan ic
 Sources/Hardware.swift     SMC access and IOHID thermal readings
 Sources/Worker.swift       Session worker, Unix-socket IPC and watchdog
 Sources/Memory.swift       Unprivileged RAM, pressure, swap and history
+Sources/Processor.swift    Per-core CPU deltas, aggregate GPU readings and tile opacity
+Sources/ProcessorUI.swift  Compact RAM/CPU/GPU menu-bar stack
 Sources/MemoryUI.swift     Pressure indicators and timeline
 Sources/Welcome.swift      Welcome window, startup preference and support link
 Tests/ControllerTests.swift
@@ -234,8 +255,8 @@ Run just the tests:
 ./build.sh --test
 ```
 
-There are 845 controller/IPC checks, 47 memory checks, 28 app-memory grouping/identity checks and 217 native menu/welcome
-checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
+There are 845 controller/IPC checks, 47 memory checks, 28 app-memory grouping/identity
+checks, 51 processor checks and 312 native menu/welcome checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
 monitoring without writes, presets, cleanup failures, icons and conditional menu

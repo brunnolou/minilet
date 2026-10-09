@@ -31,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let appMemoryMenu = AppMemoryMenuController()
     private let memoryQueue = DispatchQueue(label: "Minilet.memory", qos: .utility)
     private let memoryReader = LiveMemoryReader()
+    private let processorReader = LiveProcessorReader()
+    private var processorGeneration = 0
+    private var latestProcessors: ProcessorSnapshot?
     private var memoryHistory = PressureHistory()
     private var latestMemory: MemorySnapshot?
     private var latestTemperature: Double?
@@ -88,12 +91,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         RunLoop.main.add(timer!, forMode: .common)
         memoryTimer = Timer(timeInterval: 2, target: self, selector: #selector(refreshMemory), userInfo: nil, repeats: true)
         RunLoop.main.add(memoryTimer!, forMode: .common)
+        RunLoop.main.add(memoryTimer!, forMode: .eventTracking)
         refreshMemory()
         refresh()
         let workspace = NSWorkspace.shared.notificationCenter
         sleepObserver = workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self = self else { return }
             // No preset is automatically re-enabled after waking.
+            self.resetProcessorSampling()
             self.pending = .auto
             self.resetSelection()
             self.memoryHistory.clear()
@@ -102,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         wakeObserver = workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self = self else { return }
+            self.resetProcessorSampling()
             self.pending = .auto
             self.resetSelection()
             self.memoryHistory.clear()
@@ -199,16 +205,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(activity)
     }
 
+    private func resetProcessorSampling() {
+        processorGeneration += 1
+        latestProcessors = nil
+        memoryQueue.async { [reader = processorReader] in reader.reset() }
+        updateStatusDisplay()
+    }
+
     @objc private func refreshMemory() {
         guard !terminating, !memoryRefreshing else { return }
         memoryRefreshing = true
+        let generation = processorGeneration
         // Independent of fan IPC. A slow SMC operation cannot freeze RAM readings.
         memoryQueue.async { [weak self] in
             guard let self = self else { return }
             let result = Result { try self.memoryReader.read() }
-            DispatchQueue.main.async {
+            let processors = self.processorReader.read()
+            RunLoop.main.perform(inModes: [.common, .eventTracking]) {
                 self.memoryRefreshing = false
-                guard !self.terminating else { return }
+                guard !self.terminating, generation == self.processorGeneration else { return }
+                self.latestProcessors = processors
                 switch result {
                 case .success(let snapshot): self.applyMemory(snapshot)
                 case .failure(let error):
@@ -247,12 +263,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func updateStatusDisplay() {
         updateMemorySummary()
-        statusItem.button?.attributedTitle = MemoryVisuals.statusTitle(temperature: latestTemperature, memory: latestMemory)
+        statusItem.button?.attributedTitle = MemoryVisuals.statusTitle(temperature: latestTemperature, memory: latestMemory, processors: latestProcessors)
         let temperature = latestTemperature.map { String(format: "%.1f°C", $0) } ?? "Unavailable"
         let usage = latestMemory?.compactUsage ?? "Unavailable"
         let pressure = latestMemory?.pressure.title ?? "Unavailable"
-        statusItem.button?.toolTip = "Hottest die: \(temperature)\nMemory: \(usage)\nMemory pressure: \(pressure)\n\(hardwareStatus)"
-        statusItem.button?.setAccessibilityLabel("Minilet. Temperature \(temperature). Memory \(usage). Pressure \(pressure). \(hardwareStatus)")
+        let cpu = latestProcessors?.cpuDescription ?? "Unavailable"
+        let gpu = ProcessorSnapshot.percent(latestProcessors?.gpu)
+        statusItem.button?.toolTip = "Hottest die: \(temperature)\nMemory: \(usage)\nMemory pressure: \(pressure)\nCPU: \(cpu)\nGPU: \(gpu)\n\(hardwareStatus)"
+        statusItem.button?.setAccessibilityLabel("Minilet. Temperature \(temperature). Memory \(usage). Pressure \(pressure). CPU \(cpu). GPU \(gpu). \(hardwareStatus)")
     }
 
     private func updateStatusFanIcon(_ source: NSImage) {
@@ -628,7 +646,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         check(MemoryVisuals.color(.warning).isEqual(NSColor.systemYellow), "Warning pressure must use yellow")
         check(MemoryVisuals.color(.critical).isEqual(NSColor.systemRed), "Critical pressure must use red")
         let fullBar = MemoryVisuals.usageBar(fraction: 1, pressure: .normal)
-        check(fullBar.size.height == 8 && barAttachment()?.bounds.height == 8, "The RAM bar must use the shorter height")
+        check(fullBar.size.height == 8 && barAttachment()?.bounds == NSRect(x: 0, y: -5, width: 32, height: 14),
+              "The RAM bar stays 8px tall while the CPU/GPU stack fits below it")
+        checks += StatusMeters.runSelfTest()
+        latestProcessors = ProcessorSnapshot(cpu: [1] + Array(repeating: 0, count: 11), gpu: 0.5)
+        updateStatusDisplay()
+        check(statusItem.button?.toolTip?.contains("CPU: 8% · 12 cores") == true && statusItem.button?.toolTip?.contains("GPU: 50%") == true,
+              "Processor meters expose their measured values in the existing tooltip")
+        let generationBeforeReset = processorGeneration
+        resetProcessorSampling()
+        check(latestProcessors == nil && processorGeneration > generationBeforeReset,
+              "Sleep and wake reject stale CPU/GPU results and reset their baseline")
         if let data = fullBar.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data) {
             check((bitmap.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.05, "Filled bars must retain transparent rounded corners")
             check((bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0) > 0.95, "Full usage must fill the bar center")

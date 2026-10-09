@@ -67,13 +67,14 @@ enum MemoryVisuals {
         }
     }
 
-    static func statusTitle(temperature: Double?, memory: MemorySnapshot?) -> NSAttributedString {
+    static func statusTitle(temperature: Double?, memory: MemorySnapshot?, processors: ProcessorSnapshot? = nil) -> NSAttributedString {
         let result = NSMutableAttributedString(string: " \(MemoryFormat.temperatureTitle(temperature))  ",
             attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
                          .foregroundColor: NSColor.labelColor])
         let attachment = NSTextAttachment()
-        attachment.image = usageBar(fraction: memory?.usageFraction, pressure: memory?.pressure ?? .unknown)
-        attachment.bounds = NSRect(x: 0, y: 1, width: 32, height: 8)
+        attachment.image = StatusMeters.image(memory: memory, processors: processors)
+        // Keep the RAM bar at its existing baseline; new rows occupy the space below it.
+        attachment.bounds = NSRect(x: 0, y: -5, width: 32, height: 14)
         result.append(NSAttributedString(attachment: attachment))
         return result
     }
