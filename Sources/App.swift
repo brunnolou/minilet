@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let compressedItem = NSMenuItem(title: "Compressed   -- GB", action: nil, keyEquivalent: "")
     private let swapItem = NSMenuItem(title: "Swap used   -- GB", action: nil, keyEquivalent: "")
     private let pressureHistoryView = PressureHistoryView()
+    private lazy var memorySummaryView = MemorySummaryView(history: pressureHistoryView)
     private let appMemoryMenu = AppMemoryMenuController()
     private let memoryQueue = DispatchQueue(label: "Minilet.memory", qos: .utility)
     private let memoryReader = LiveMemoryReader()
@@ -205,20 +206,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func createMemoryMenu() {
-        memoryItem.isEnabled = false
-        memoryItem.image = NSImage(systemSymbolName: "memorychip", accessibilityDescription: nil)
+        memoryItem.isEnabled = true
+        memoryItem.view = memorySummaryView
+        memoryItem.submenu = appMemoryMenu.menu
         compressedItem.isEnabled = false
         swapItem.isEnabled = false
         pressureItem.isEnabled = false
         pressureItem.image = MemoryVisuals.badge(.unknown)
+        updateMemorySummary()
         menu.addItem(memoryItem)
-        menu.addItem(pressureItem)
-        menu.addItem(compressedItem)
-        menu.addItem(swapItem)
-        let history = NSMenuItem()
-        history.view = pressureHistoryView
-        menu.addItem(history)
-        menu.addItem(appMemoryMenu.item)
         let activity = NSMenuItem(title: "Open Activity Monitor…", action: #selector(openActivityMonitor), keyEquivalent: "")
         activity.target = self
         menu.addItem(activity)
@@ -265,7 +261,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateStatusDisplay()
     }
 
+    private func updateMemorySummary() {
+        memorySummaryView.update(titles: [memoryItem.title, pressureItem.title, compressedItem.title, swapItem.title],
+                                 pressure: pressureItem.image)
+    }
+
     private func updateStatusDisplay() {
+        updateMemorySummary()
         statusItem.button?.attributedTitle = MemoryVisuals.statusTitle(temperature: latestTemperature, memory: latestMemory)
         let temperature = latestTemperature.map { String(format: "%.1f°C", $0) } ?? "Unavailable"
         let usage = latestMemory?.compactUsage ?? "Unavailable"
@@ -615,7 +617,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else { preconditionFailure("Usage bar must render") }
         let historyOutline = MemoryVisuals.capsule(NSRect(x: 0, y: 0, width: 100, height: 10))
         check(!historyOutline.contains(NSPoint(x: 0.5, y: 0.5)) && historyOutline.contains(NSPoint(x: 50, y: 5)), "History uses a capsule outline for clipping its fills")
-        check(menu.items.contains { $0 === appMemoryMenu.item } && appMemoryMenu.item.submenu != nil, "Memory apps must live under a single submenu")
+        check(memoryItem.submenu === appMemoryMenu.menu && memoryItem.view === memorySummaryView && memoryItem.isEnabled,
+              "The full memory summary must open the apps submenu")
+        check(!menu.items.contains { $0.title == "Apps using memory" || $0 === pressureItem || $0 === compressedItem || $0 === swapItem },
+              "Memory has one hover block, not a separate apps row or individual data rows")
+        check(memorySummaryView.labels[0].stringValue == memoryItem.title && pressureHistoryView.superview === memorySummaryView,
+              "The hover block contains the readouts and five-minute history")
+        check(memorySummaryView.hitTest(NSPoint(x: 20, y: 10)) === memorySummaryView
+              && memorySummaryView.hitTest(NSPoint(x: 50, y: 125)) === memorySummaryView,
+              "History and readout hit areas belong to the same submenu item")
         checks += AppMemoryMenuController.runSelfTest()
         checks += WelcomeWindowController.runSelfTest()
         NSStatusBar.system.removeStatusItem(statusItem)

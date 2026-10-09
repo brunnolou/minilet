@@ -82,7 +82,8 @@ remain available in the menu-bar tooltip and accessibility label.
 Memory is sampled every two seconds with unprivileged native Mach/sysctl calls,
 independently of fan operations. The menu can open Activity Monitor.
 
-"Apps using memory" contains the ten largest identifiable apps, with app icons,
+Hovering or clicking anywhere in the memory summary, including the pressure
+history, opens the ten largest identifiable apps, with app icons,
 memory footprints, relative usage bars and a Quit button for each. The largest
 app fills its bar; the others use the same scale. Helpers inside an app bundle
 and child processes are grouped under the owning app using macOS metadata and
@@ -221,7 +222,7 @@ Run just the tests:
 ./build.sh --test
 ```
 
-There are 693 controller/IPC checks, 47 memory checks, 28 app-memory grouping/identity checks and 121 native menu/welcome
+There are 693 controller/IPC checks, 47 memory checks, 28 app-memory grouping/identity checks and 124 native menu/welcome
 checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,

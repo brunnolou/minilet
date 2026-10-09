@@ -103,7 +103,6 @@ final class AppMemoryRowView: NSView {
 }
 
 final class AppMemoryMenuController: NSObject, NSMenuDelegate {
-    let item = NSMenuItem(title: "Apps using memory", action: nil, keyEquivalent: "")
     let menu = NSMenu()
     private let queue = DispatchQueue(label: "Minilet.app-memory", qos: .utility)
     private let readApps: ([MemoryAppIdentity]) throws -> [AppMemoryUsage]
@@ -123,8 +122,6 @@ final class AppMemoryMenuController: NSObject, NSMenuDelegate {
         super.init()
         menu.autoenablesItems = false
         menu.delegate = self
-        item.submenu = menu
-        item.image = NSImage(systemSymbolName: "app.stack", accessibilityDescription: nil)
         showMessage("Reading apps…")
     }
 
@@ -256,7 +253,7 @@ final class AppMemoryMenuController: NSObject, NSMenuDelegate {
             precondition(condition, message)
         }
         let controller = AppMemoryMenuController(readApps: { _ in [] })
-        check(controller.item.submenu === controller.menu, "App memory belongs in a submenu")
+        check(controller.menu.delegate === controller, "The app-memory submenu keeps its live-refresh delegate")
         check(controller.menu.items.count == 1 && !controller.menu.items[0].isEnabled, "Initial state is a disabled reading row")
         let apps = (0..<12).map { index in
             AppMemoryUsage(name: "Sample app \(index)", bundlePath: "/Applications/Sample\(index).app",

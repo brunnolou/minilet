@@ -80,6 +80,9 @@ enum MemoryVisuals {
 }
 
 final class PressureHistoryView: NSView {
+    var menuHighlighted = false {
+        didSet { if oldValue != menuHighlighted { needsDisplay = true } }
+    }
     var history = PressureHistory() {
         didSet {
             needsDisplay = true
@@ -98,11 +101,12 @@ final class PressureHistoryView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        let textColor: NSColor = menuHighlighted ? .selectedMenuItemTextColor : .secondaryLabelColor
         ("Pressure · last 5 minutes" as NSString).draw(at: NSPoint(x: 17, y: 23),
-            withAttributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
+            withAttributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: textColor])
         let track = NSRect(x: 17, y: 7, width: bounds.width - 34, height: 9)
         let outline = MemoryVisuals.capsule(track)
-        NSColor.quaternaryLabelColor.setFill()
+        (menuHighlighted ? NSColor.selectedMenuItemTextColor.withAlphaComponent(0.16) : .quaternaryLabelColor).setFill()
         outline.fill()
         NSGraphicsContext.saveGraphicsState()
         outline.addClip()
@@ -111,7 +115,8 @@ final class PressureHistoryView: NSView {
         for span in history.spans(until: now) {
             let x = track.minX + (span.start - start) / PressureHistory.duration * track.width
             let width = (span.end - span.start) / PressureHistory.duration * track.width
-            MemoryVisuals.color(span.pressure).setFill()
+            let color = menuHighlighted && span.pressure == .normal ? NSColor.selectedMenuItemTextColor : MemoryVisuals.color(span.pressure)
+            color.setFill()
             NSRect(x: x, y: track.minY, width: width, height: track.height).fill()
         }
         NSGraphicsContext.restoreGraphicsState()
