@@ -29,6 +29,7 @@ final class FakeDevice: FanDevice {
     }
     func speeds() throws -> [Double] { rpms }
     func minimumRPM() throws -> Double { 2400 }
+    func maximumRPM() throws -> Double { 7800 }
     func automatic() throws {
         calls.append("auto")
         if autoFailure { throw "Auto failed" }
@@ -38,7 +39,6 @@ final class FakeDevice: FanDevice {
         if writeFailure { throw "Write failed" }
         rpms = [rpm, rpm]
     }
-    func medium() throws { calls.append("medium"); rpms = [3900, 3900] }
     func full() throws { calls.append("full"); rpms = [7826, 7826] }
 }
 
@@ -53,7 +53,7 @@ expectError("Reject NaN target") { try Settings(target: .nan).validate() }
 expectError("Reject unsafe target") { try Settings(target: 110).validate() }
 expectError("Reject infinite cap") { try Settings(maxRPM: .infinity).validate() }
 expectError("Reject low cap") { try Settings(maxRPM: 2500).validate() }
-expectError("Reject target below minimum") { try Settings(target: 39).validate() }
+expectError("Reject target below minimum") { try Settings(target: 29).validate() }
 expectError("Reject invalid sensor") { _ = try curve.output(temperature: .nan, settings: settings) }
 expectError("Reject invalid fan minimum") { _ = try curve.output(temperature: 80, settings: settings, minimumRPM: .nan) }
 expectError("Reject cap below hardware minimum") { _ = try curve.output(temperature: 80, settings: settings, minimumRPM: 6000) }
@@ -78,7 +78,7 @@ for type in CurveType.allCases {
         check(value.isFinite && value >= previous && value <= 1.0000000001, "Curve must be bounded and monotonic")
         previous = value
     }
-    for target in [40.0, 45, 55, 80, 85] {
+    for target in [30.0, 40, 45, 55, 80, 85] {
         let configured = Settings(target: target, maxRPM: 7800, curve: type)
         check(try curve.output(temperature: target - 10, settings: configured) == .rpm(2400), "Cold guard stays manual at minimum")
         check(try curve.output(temperature: target - 5, settings: configured) == .rpm(2400), "Every ramp starts at minimum")
@@ -144,7 +144,7 @@ check(device.calls.last == "rpm 5000", "High preset")
 try controller.select(.xhigh, settings: settings)
 check(device.calls.last == "rpm 6000", "Extra high preset")
 try controller.select(.medium, settings: settings)
-check(device.calls.last == "medium", "Medium preset")
+check(device.calls.last == "rpm 4000", "Medium preset is a fixed 4000 RPM, not a hardware percentage")
 try controller.select(.full, settings: settings)
 check(device.calls.last == "full", "Full preset")
 try controller.select(.guardMode, settings: lowSettings)
@@ -189,6 +189,56 @@ check(controller.reply.error?.contains("Restoring auto FAILED") == true, "Cleanu
 device.autoFailure = false
 try controller.stop()
 check(device.calls.last == "auto", "Quit restores automatic")
+
+// Shared inline speed/temperature controls and hardware-resolved caps.
+for (index, speed) in FanMode.sliderModes.enumerated() {
+    check(speed.sliderIndex == index && FanMode.sliderMode(value: Double(index)) == speed, "Speed slider stop mapping")
+    var selection = FanControlSelection(speed: speed)
+    check(selection.mode == speed, "Temperature Off uses fixed-speed behavior")
+    selection.temperature = 55
+    check(selection.mode == .guardMode, "Every speed stop becomes a cap while a target is active")
+    selection.temperature = nil
+    check(selection.mode == speed, "Off returns to the selected speed")
+}
+check(FanMode.sliderMode(value: .nan) == .auto && FanMode.sliderMode(value: -50) == .auto, "Invalid speed slider input stays safe")
+check(FanMode.sliderMode(value: Double.greatestFiniteMagnitude) == .full, "Speed slider clamps before integer conversion")
+check(FanControlSelection.temperature(value: 0) == nil && FanControlSelection.temperature(value: .nan) == nil, "Zero and invalid temperature slider input are Off")
+check(FanControlSelection.temperature(value: 1) == 30 && FanControlSelection.temperature(value: 56) == 85, "Temperature slider endpoints")
+check(FanControlSelection.temperature(value: 100) == 85 && FanControlSelection.temperature(value: -1) == nil, "Temperature slider bounds")
+check(oldSettings.speedCap == nil, "Old saved settings retain their exact legacy RPM cap")
+for (speed, expected) in [(FanMode.medium, 4000.0), (.high, 5000), (.xhigh, 6000), (.full, 7800)] {
+    let setting = Settings(target: 55, curve: .linear, speedCap: speed)
+    let resolved = try setting.resolvingSpeedCap(minimumRPM: 2400, maximumRPM: 7800)
+    check(resolved.maxRPM == expected, "Speed-cap presets resolve against hardware")
+    check(try GuardCurve().output(temperature: 65, settings: resolved) == .rpm(expected), "Temperature curve reaches the selected speed cap")
+    check(try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(setting)) == setting, "Speed-cap selection survives IPC and preferences encoding")
+    let capDevice = FakeDevice()
+    capDevice.rpms = [7800, 7800]
+    let capController = FanController(device: capDevice)
+    try capController.select(.guardMode, settings: setting)
+    capController.tick(now: 0)
+    check(capController.mode == .guardMode && requestedRPM(capController.output!) <= expected && capController.reply.error == nil,
+          "Cap selection remains temperature regulation, not a fixed-speed write")
+    capDevice.temp = 93
+    capController.tick(now: 5)
+    check(capDevice.calls.last == "full", "Emergency bypasses every shared speed cap")
+}
+let mediumCap = Settings(speedCap: .medium)
+check(try mediumCap.resolvingSpeedCap(minimumRPM: 4200, maximumRPM: 7800).maxRPM == 4200, "Medium cap never drops below hardware minimum")
+check(try mediumCap.resolvingSpeedCap(minimumRPM: 2400, maximumRPM: 3500).maxRPM == 3500, "Medium cap never exceeds a lower hardware maximum")
+expectError("Automatic is unavailable as a temperature-control cap") { _ = try Settings(speedCap: .auto).resolvingSpeedCap(minimumRPM: 2400, maximumRPM: 7800) }
+check(try Settings(speedCap: .xhigh).resolvingSpeedCap(minimumRPM: 2400, maximumRPM: 4500).maxRPM == 4500, "Fixed-RPM caps never exceed hardware maximum")
+expectError("Reject a temperature mode as a speed cap") { try Settings(speedCap: .guardMode).validate() }
+expectError("Reject unreadable hardware maximum") { _ = try mediumCap.resolvingSpeedCap(minimumRPM: 2400, maximumRPM: .nan) }
+expectError("Reject incompatible hardware limits") { _ = try mediumCap.resolvingSpeedCap(minimumRPM: 5000, maximumRPM: 4000) }
+expectError("Legacy caps still reject out-of-range values") { try Settings(maxRPM: 500).validate() }
+
+let invalidCapDevice = FakeDevice()
+let invalidCapController = FanController(device: invalidCapDevice)
+expectError("Controller rejects Auto as a cap before taking ownership") {
+    try invalidCapController.select(.guardMode, settings: Settings(speedCap: .auto))
+}
+check(invalidCapDevice.calls.isEmpty && !invalidCapController.ownsFans, "An invalid Auto cap performs no fan writes")
 
 // Real Unix-socket regression, without sudo or actual fan writes.
 func testSlowReply() throws {

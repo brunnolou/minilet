@@ -47,24 +47,35 @@ approval would require a separate installed privileged helper. Apple's modern
 `SMAppService` daemon route requires a notarized app; this ad-hoc build does not
 install that service or save your password.
 
-Each preset has its own native icon:
+Two sliders appear directly in the main menu, followed by the Curve submenu:
 
-- **Automatic** returns fan control to macOS.
-- **Medium** requests 50% of each fan's maximum speed, bounded by its hardware limits.
-- **High** requests 5000 RPM.
-- **Extra high** requests 6000 RPM.
-- **Full speed** requests each fan's hardware maximum.
-- **Set temperature** opens temperature-control settings, with the current target
-  right-aligned in the main menu. Adjusting the target, speed cap or curve starts
-  continuous temperature control and requests authorization when needed.
-  Opening the submenu alone does not change the fans.
+- **Speed** has five stops: Automatic, Medium, High, Extra high and Full speed.
+  With Cool to Off, these return control to macOS, request 4000 RPM,
+  request 5000 RPM, request 6000 RPM or request hardware maximum.
+- **Cool to** starts at Off. Its remaining positions select cooling targets from
+  30°C to 85°C and activate continuous temperature control. While a target is
+  selected, the Speed slider becomes **Max speed**, setting the speed cap instead
+  of a fixed speed. Turning Cool to Off returns to the selected speed preset.
+- **Curve** selects Linear, Exponential, Logarithmic or Smoothstep. Changing it
+  while Cool to is Off saves the choice without activating control.
 
-Temperature readings and fan controls are grouped before the memory section.
-Temperature settings remain accessible with every preset. The filtered control
-temperature appears inside the submenu only while temperature control is selected.
+Automatic is unavailable in Max speed mode. Enabling Cool to while Speed is Auto
+selects Full as the cap, allowing temperature regulation up to hardware maximum
+without immediately forcing full RPM. Medium, High and Extra high cap at 4000,
+5000 and 6000 RPM. All caps stay within hardware limits. The 92°C emergency
+override still bypasses the cap.
 
-Settings persist, including when migrating from the earlier Fan Menu prototype.
-Active presets never restart automatically on launch or after waking from sleep.
+The speed icon is `fan.badge.automatic` at zero. Other positions use
+`fan.gauge.open`, with its line animated to the selected value on macOS 26.
+The menu-bar icon follows the same selected gauge and animation.
+Older supported macOS versions use a drawn fan gauge. Reduced Motion disables
+animation.
+
+Temperature readings and both controls are grouped before memory. The filtered
+control temperature appears only while temperature control is active. Targets
+and curves persist, including when migrating from the earlier Fan Menu prototype.
+Launch and wake always reset Cool to Off and Speed to Automatic; saved
+settings never reactivate control on their own.
 
 ## Memory monitoring
 
@@ -108,8 +119,8 @@ Guard reads the hottest usable Apple Silicon `tdie` sensor every five seconds.
 It stays in manual RPM control while selected, including when the Mac is cool.
 Crossing the target never switches between manual and automatic control.
 
-- Target range: 40–85°C, default 80°C.
-- Speed cap: 3200–8000 RPM, default 5500 RPM, bounded by each fan's hardware limits.
+- Target range: 30–85°C, default saved target 80°C; temperature control starts Off.
+- Speed cap: Medium 4000 RPM, High 5000 RPM, Extra high 6000 RPM or hardware maximum.
 - Below target minus 5°C, fans hold their hardware minimum.
 - At target plus 10°C, the curve reaches the selected speed cap.
 - The ramp endpoint never exceeds 92°C.
@@ -131,9 +142,9 @@ Lowering the speed cap can clamp RPM immediately.
 A raw reading of 92°C requests hardware maximum immediately, bypassing the filter,
 curve and speed limits. Maximum is held until the raw temperature falls to 88°C.
 
-Slider and curve changes are debounced by 400 milliseconds, then request a fresh
-sensor sample without clearing the filter or speed history. Changes queued during
-a hardware operation apply when it finishes.
+Temperature and curve changes are debounced by 400 milliseconds. Speed-cap
+changes request a fresh sample immediately. Neither clears the filter or speed
+history. Changes queued during a hardware operation apply when it finishes.
 
 Very low targets may be unreachable under load and can keep fans at their cap.
 The target is a fan-policy setting, not a guaranteed temperature or an
@@ -201,7 +212,8 @@ locally, not notarized for public distribution.
 
 ```
 Sources/App.swift          AppKit menu, authorization and settings
-Sources/Control.swift      Presets, curves and temperature regulation
+Sources/Control.swift      Presets, shared speed caps and temperature regulation
+Sources/FanPresetUI.swift  Inline speed and temperature sliders, variable fan icons
 Sources/Hardware.swift     SMC access and IOHID thermal readings
 Sources/Worker.swift       Session worker, Unix-socket IPC and watchdog
 Sources/Memory.swift       Unprivileged RAM, pressure, swap and history
@@ -222,7 +234,7 @@ Run just the tests:
 ./build.sh --test
 ```
 
-There are 693 controller/IPC checks, 47 memory checks, 28 app-memory grouping/identity checks and 124 native menu/welcome
+There are 845 controller/IPC checks, 47 memory checks, 28 app-memory grouping/identity checks and 217 native menu/welcome
 checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,

@@ -48,6 +48,13 @@ final class LiveFanDevice: FanDevice {
         return minimum
     }
 
+    func maximumRPM() throws -> Double {
+        // The shared cap must be within every fan's hardware maximum.
+        let maximums = try (0..<count()).map { try limits($0).1 }
+        guard let maximum = maximums.min() else { throw "No fans found" }
+        return maximum
+    }
+
     func automatic() throws { try smc.auto(verbose: false) }
 
     func setRPM(_ rpm: Double) throws {
@@ -55,13 +62,6 @@ final class LiveFanDevice: FanDevice {
         for fan in 0..<(try count()) {
             let (low, high) = try limits(fan)
             try smc.setFan(fan, rpm: min(high, max(low, rpm)))
-        }
-    }
-
-    func medium() throws {
-        for fan in 0..<(try count()) {
-            let (low, high) = try limits(fan)
-            try smc.setFan(fan, rpm: max(low, high * 0.5))
         }
     }
 

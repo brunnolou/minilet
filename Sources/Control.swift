@@ -7,21 +7,20 @@ import Foundation
 enum FanMode: String, Codable, CaseIterable {
     case auto, medium, high, xhigh, full, guardMode = "guard"
 
-    var symbolName: String {
-        switch self {
-        case .auto: return "arrow.triangle.2.circlepath"
-        case .medium: return "fanblades"
-        case .high: return "wind"
-        case .xhigh: return "bolt.fill"
-        case .full: return "speedometer"
-        case .guardMode: return "thermometer"
-        }
+    static let sliderModes: [FanMode] = [.auto, .medium, .high, .xhigh, .full]
+
+    var sliderIndex: Int? { Self.sliderModes.firstIndex(of: self) }
+
+    static func sliderMode(value: Double) -> FanMode {
+        let value = value.isFinite ? value : 0
+        let index = Int(min(4, max(0, value.rounded())))
+        return sliderModes[index]
     }
 
     var title: String {
         switch self {
         case .auto: return "Automatic"
-        case .medium: return "Medium · 50%"
+        case .medium: return "Medium · 4000 RPM"
         case .high: return "High · 5000 RPM"
         case .xhigh: return "Extra high · 6000 RPM"
         case .full: return "Full speed"
@@ -66,14 +65,16 @@ struct Settings: Codable, Equatable {
     var target: Double
     var maxRPM: Double
     var curve: CurveType
+    var speedCap: FanMode?
 
-    init(target: Double = 80, maxRPM: Double = 5500, curve: CurveType = .exponential) {
+    init(target: Double = 80, maxRPM: Double = 5500, curve: CurveType = .exponential, speedCap: FanMode? = nil) {
         self.target = target
         self.maxRPM = maxRPM
         self.curve = curve
+        self.speedCap = speedCap
     }
 
-    private enum CodingKeys: String, CodingKey { case target, maxRPM, curve }
+    private enum CodingKeys: String, CodingKey { case target, maxRPM, curve, speedCap }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -81,15 +82,50 @@ struct Settings: Codable, Equatable {
         maxRPM = try values.decode(Double.self, forKey: .maxRPM)
         // Preserve existing slider values when loading pre-curve settings.
         curve = try values.decodeIfPresent(CurveType.self, forKey: .curve) ?? .exponential
+        speedCap = try values.decodeIfPresent(FanMode.self, forKey: .speedCap)
     }
 
     var rampEndTemperature: Double { min(target + 10, 92) }
 
     func validate() throws {
-        guard target.isFinite, (40...85).contains(target),
-              maxRPM.isFinite, (3200...8000).contains(maxRPM) else {
+        guard target.isFinite, (30...85).contains(target),
+              maxRPM.isFinite,
+              (speedCap == nil ? (3200...8000).contains(maxRPM) : (0..<20000).contains(maxRPM)),
+              speedCap == nil || FanMode.sliderModes.contains(speedCap!) else {
             throw "Invalid guard settings"
         }
+    }
+
+    func resolvingSpeedCap(minimumRPM: Double, maximumRPM: Double) throws -> Settings {
+        guard let cap = speedCap else { return self }
+        try validate()
+        guard minimumRPM.isFinite, maximumRPM.isFinite, minimumRPM >= 0,
+              maximumRPM >= minimumRPM, maximumRPM > 0, maximumRPM < 20000 else { throw "Invalid fan limits" }
+        let rpm: Double
+        switch cap {
+        case .full: rpm = maximumRPM
+        case .medium: rpm = 4000
+        case .high: rpm = 5000
+        case .xhigh: rpm = 6000
+        case .auto, .guardMode: throw "Invalid speed cap"
+        }
+        var resolved = self
+        resolved.maxRPM = min(maximumRPM, max(minimumRPM, rpm))
+        return resolved
+    }
+}
+
+// Session-only control selection. Temperature 0 is Off; the remaining slider
+// positions map to 30...85 C without an unusable 1...29 C range.
+struct FanControlSelection {
+    var speed: FanMode = .auto
+    var temperature: Double?
+    var mode: FanMode { temperature == nil ? speed : .guardMode }
+
+    static func temperature(value: Double) -> Double? {
+        guard value.isFinite else { return nil }
+        let step = min(56, max(0, value.rounded()))
+        return step == 0 ? nil : step + 29
     }
 }
 
@@ -170,9 +206,9 @@ protocol FanDevice {
     func temperature() throws -> Double
     func speeds() throws -> [Double]
     func minimumRPM() throws -> Double
+    func maximumRPM() throws -> Double
     func automatic() throws
     func setRPM(_ rpm: Double) throws
-    func medium() throws
     func full() throws
 }
 
@@ -189,6 +225,7 @@ final class FanController {
 
     func select(_ mode: FanMode, settings: Settings) throws {
         try settings.validate()
+        guard mode != .guardMode || settings.speedCap != .auto else { throw "Automatic is not a speed cap" }
         self.settings = settings
         if self.mode != mode { regulator = GuardRegulator() }
         self.mode = mode
@@ -198,9 +235,7 @@ final class FanController {
         ownsFans = true
         switch mode {
         case .auto: try apply(.automatic)
-        case .medium:
-            try device.medium()
-            reply.output = "50% of each fan's maximum"
+        case .medium: try apply(.rpm(4000))
         case .high: try apply(.rpm(5000))
         case .xhigh: try apply(.rpm(6000))
         case .full: try apply(.full)
@@ -233,8 +268,11 @@ final class FanController {
             reply.rpms = speeds
             if mode == .guardMode {
                 ownsFans = true
-                let next = try regulator.output(temperature: temp, settings: settings,
-                                                minimumRPM: device.minimumRPM(),
+                let minimum = try device.minimumRPM()
+                let resolved = try settings.resolvingSpeedCap(minimumRPM: minimum,
+                    maximumRPM: settings.speedCap == nil ? settings.maxRPM : device.maximumRPM())
+                let next = try regulator.output(temperature: temp, settings: resolved,
+                                                minimumRPM: minimum,
                                                 actualRPM: speeds.max() ?? 0, now: now)
                 try apply(next)
                 reply.smoothedTemperature = regulator.smoothedTemperature

@@ -15,8 +15,8 @@ func appleScriptString(_ value: String) -> String {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
-    private lazy var fanIcon = makeFanIcon(opacity: 1)
-    private lazy var monitoringFanIcon = makeFanIcon(opacity: 0.5)
+    private var fanIcon: NSImage?
+    private var monitoringFanIcon: NSImage?
     private let menu = NSMenu()
     private let temperatureItem = NSMenuItem(title: "Reading temperature…", action: nil, keyEquivalent: "")
     private let speedItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -36,17 +36,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var latestTemperature: Double?
     private var hardwareStatus = "Monitoring only"
     private var memoryRefreshing = false
-    private var modeItems: [FanMode: NSMenuItem] = [:]
-    private var guardOptionItems: [NSMenuItem] = []
-    private let guardSettingsMenu = NSMenu()
+    private let fanPresetView = FanPresetView()
+    private let fanPresetItem = NSMenuItem()
+    private let temperatureControlView = TemperatureControlView()
+    private let temperatureControlItem = NSMenuItem()
+    private var selection = FanControlSelection()
+    private var testingControls = false
     private var hasControlTemperature = false
     private let curveMenuItem = NSMenuItem(title: "Curve", action: nil, keyEquivalent: "")
     private var curveItems: [CurveType: NSMenuItem] = [:]
-    private let targetLabel = NSTextField(labelWithString: "")
-    private let maxLabel = NSTextField(labelWithString: "")
-    private let rampItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    private let targetSlider = NSSlider(value: 80, minValue: 40, maxValue: 85, target: nil, action: nil)
-    private let maxSlider = NSSlider(value: 5500, minValue: 3200, maxValue: 8000, target: nil, action: nil)
     private let queue = DispatchQueue(label: "Minilet.controller")
     private let session = UUID().uuidString
     private var socketPath: String { "/var/run/minilet-\(session).sock" }
@@ -97,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self = self else { return }
             // No preset is automatically re-enabled after waking.
             self.pending = .auto
+            self.resetSelection()
             self.memoryHistory.clear()
             self.pressureHistoryView.history = self.memoryHistory
             self.refresh()
@@ -104,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         wakeObserver = workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self = self else { return }
             self.pending = .auto
+            self.resetSelection()
             self.memoryHistory.clear()
             self.pressureHistoryView.history = self.memoryHistory
             self.refreshMemory()
@@ -139,7 +139,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         controlTempItem.isHidden = true
         outputItem.isEnabled = false
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = monitoringFanIcon
+        fanPresetView.onGaugeImageChanged = { [weak self] image in self?.updateStatusFanIcon(image) }
+        updateStatusFanIcon(fanPresetView.icon.image!)
         statusItem.button?.imagePosition = .imageLeading
         statusItem.button?.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         statusItem.button?.attributedTitle = MemoryVisuals.statusTitle(temperature: nil, memory: nil)
@@ -151,17 +152,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         outputItem.action = #selector(showControlError)
         menu.addItem(outputItem)
         menu.addItem(.separator())
-        for preset in FanMode.allCases {
-            let item = NSMenuItem(title: preset == .guardMode ? "Set temperature" : preset.title,
-                                  action: preset == .guardMode ? nil : #selector(selectPreset(_:)), keyEquivalent: "")
-            if preset == .guardMode { item.submenu = guardSettingsMenu }
-            item.image = presetIcon(preset)
-            item.target = self
-            item.representedObject = preset.rawValue
-            modeItems[preset] = item
-            menu.addItem(item)
-        }
-        guardSettingsMenu.autoenablesItems = false
+        fanPresetItem.view = fanPresetView
+        fanPresetView.onChange = { [weak self] preset in self?.speedChanged(preset) }
+        menu.addItem(fanPresetItem)
+        temperatureControlItem.view = temperatureControlView
+        temperatureControlView.onChange = { [weak self] temperature in self?.temperatureChanged(temperature) }
+        menu.addItem(temperatureControlItem)
         let curveMenu = NSMenu()
         curveMenu.autoenablesItems = false
         for curve in CurveType.allCases {
@@ -172,25 +168,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             curveMenu.addItem(item)
         }
         curveMenuItem.submenu = curveMenu
-        addGuardOption(curveMenuItem)
         updateCurveChecks()
-        addGuardOption(.separator())
-        targetSlider.doubleValue = settings.target
-        maxSlider.doubleValue = settings.maxRPM
-        for slider in [targetSlider, maxSlider] {
-            slider.target = self
-            slider.action = #selector(sliderChanged(_:))
-            slider.isContinuous = true
-        }
-        addGuardOption(sliderItem(label: targetLabel, slider: targetSlider))
-        addGuardOption(sliderItem(label: maxLabel, slider: maxSlider))
-        addGuardOption(.separator())
-        rampItem.isEnabled = false
-        addGuardOption(rampItem)
-        let note = NSMenuItem(title: "Full speed overrides the cap at 92°C", action: nil, keyEquivalent: "")
-        note.isEnabled = false
-        addGuardOption(note)
-        addGuardOption(controlTempItem)
+        menu.addItem(controlTempItem)
+        menu.addItem(curveMenuItem)
         menu.addItem(.separator())
         createMemoryMenu()
         menu.addItem(.separator())
@@ -201,7 +181,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let quitItem = NSMenuItem(title: "Quit and restore automatic", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
-        updateSliderLabels()
         updateChecks()
     }
 
@@ -276,10 +255,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.button?.setAccessibilityLabel("Minilet. Temperature \(temperature). Memory \(usage). Pressure \(pressure). \(hardwareStatus)")
     }
 
-    private func makeFanIcon(opacity: CGFloat) -> NSImage? {
-        guard let source = NSImage(systemSymbolName: "fanblades", accessibilityDescription: "Minilet") else { return nil }
-        source.isTemplate = true
-        let image = NSImage(size: source.size, flipped: false) { rect in
+    private func updateStatusFanIcon(_ source: NSImage) {
+        fanIcon = makeFanIcon(source: source, opacity: 1)
+        monitoringFanIcon = makeFanIcon(source: source, opacity: 0.5)
+        statusItem.button?.image = mode == nil ? monitoringFanIcon : fanIcon
+    }
+
+    private func makeFanIcon(source: NSImage, opacity: CGFloat) -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
             source.draw(in: rect, from: .zero, operation: .sourceOver, fraction: opacity)
             return true
         }
@@ -287,58 +270,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return image
     }
 
-    private func presetIcon(_ preset: FanMode) -> NSImage? {
-        let image = NSImage(systemSymbolName: preset.symbolName, accessibilityDescription: preset.title)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .regular))
-        image?.isTemplate = true
-        image?.size = NSSize(width: 16, height: 16)
-        return image
-    }
-
-    private func addGuardOption(_ item: NSMenuItem) {
-        guardOptionItems.append(item)
-        guardSettingsMenu.addItem(item)
-    }
-
     private func updateGuardVisibility() {
         let selected = pending ?? inFlightMode ?? mode
         controlTempItem.isHidden = selected != .guardMode || !hasControlTemperature
     }
 
-    private func sliderItem(label: NSTextField, slider: NSSlider) -> NSMenuItem {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 285, height: 65))
-        label.font = .systemFont(ofSize: 12, weight: .medium)
-        label.frame = NSRect(x: 17, y: 39, width: 255, height: 18)
-        slider.frame = NSRect(x: 17, y: 8, width: 250, height: 24)
-        view.addSubview(label)
-        view.addSubview(slider)
-        let item = NSMenuItem()
-        item.view = view
-        return item
+    private func speedChanged(_ speed: FanMode) {
+        guard selection.temperature == nil || speed != .auto else {
+            updateChecks()
+            return
+        }
+        selection.speed = speed
+        settings.speedCap = speed
+        debounce?.cancel()
+        debounce = nil
+        persistSettings()
+        requestPreset(selection.mode)
     }
 
-    private func updateSliderLabels() {
-        targetLabel.stringValue = "Target temperature   \(Int(settings.target))°C"
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.tabStops = [NSTextTab(textAlignment: .right, location: 220)]
-        modeItems[.guardMode]?.attributedTitle = NSAttributedString(string: "Set temperature\t\(Int(settings.target))°C",
-            attributes: [.font: NSFont.menuFont(ofSize: 0), .paragraphStyle: paragraph])
-        maxLabel.stringValue = "Speed cap   \(Int(settings.maxRPM)) RPM"
-        rampItem.title = "Min RPM below \(Int(settings.target - 5))°C · cap at \(Int(settings.rampEndTemperature))°C"
+    private func temperatureChanged(_ temperature: Double?) {
+        selection.temperature = temperature
+        if let temperature = temperature {
+            settings.target = temperature
+            // Automatic is not a cap. Entering from Auto selects the hardware
+            // maximum without forcing full RPM during temperature regulation.
+            if selection.speed == .auto { selection.speed = .full }
+        }
+        settings.speedCap = selection.speed
+        updateChecks()
+        if temperature == nil {
+            debounce?.cancel()
+            debounce = nil
+            persistSettings()
+            requestPreset(selection.mode)
+        } else { saveAndApplySettings() }
     }
 
-    @objc private func sliderChanged(_ sender: NSSlider) {
-        settings.target = targetSlider.doubleValue.rounded()
-        settings.maxRPM = (maxSlider.doubleValue / 100).rounded() * 100
-        updateSliderLabels()
-        saveAndApplySettings()
+    private func persistSettings() {
+        guard !testingControls else { return }
+        if let data = try? JSONEncoder().encode(settings) { UserDefaults.standard.set(data, forKey: "settings") }
+    }
+
+    private func resetSelection() {
+        selection = FanControlSelection()
+        debounce?.cancel()
+        debounce = nil
+        updateChecks()
     }
 
     @objc private func selectCurve(_ item: NSMenuItem) {
         guard let raw = item.representedObject as? String, let curve = CurveType(rawValue: raw) else { return }
         settings.curve = curve
         updateCurveChecks()
-        saveAndApplySettings()
+        persistSettings()
+        if selection.temperature != nil { saveAndApplySettings() }
     }
 
     private func updateCurveChecks() {
@@ -347,22 +332,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func saveAndApplySettings() {
-        if let data = try? JSONEncoder().encode(settings) { UserDefaults.standard.set(data, forKey: "settings") }
+        persistSettings()
         debounce?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.requestPreset(.guardMode) }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.debounce = nil
+            self.requestPreset(self.selection.mode)
+        }
         debounce = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
-    @objc private func selectPreset(_ item: NSMenuItem) {
-        debounce?.cancel()
-        guard let raw = item.representedObject as? String, let preset = FanMode(rawValue: raw) else { return }
-        requestPreset(preset)
-    }
-
     private func requestPreset(_ preset: FanMode) {
         pending = preset
-        updateGuardVisibility()
+        updateChecks()
         if connected { refresh() }
         else { authorize() }
     }
@@ -398,7 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.mode = nil
                 self.pending = nil
                 self.inFlightMode = nil
-                self.updateChecks()
+                self.resetSelection()
                 if !self.terminating {
                     self.outputItem.title = failure == nil ? "Controller stopped · monitoring only" : "Authorization/controller failed"
                     if let failure = failure, !failure.contains("-128") { self.showError(failure) }
@@ -445,6 +428,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case .success(let reply):
                     self.connected = FileManager.default.fileExists(atPath: path)
                     self.mode = self.connected && reply.error == nil ? reply.mode : nil
+                    if reply.error != nil { self.resetSelection() }
+                    else if self.pending == nil && self.debounce == nil && self.authProcess == nil && !self.connected {
+                        self.resetSelection()
+                    }
                     self.updateChecks()
                     self.latestTemperature = reply.temperature
                     if let temp = reply.temperature {
@@ -478,13 +465,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func updateChecks() {
-        statusItem.button?.image = mode == nil ? monitoringFanIcon : fanIcon
-        for (preset, item) in modeItems { item.state = preset == mode ? .on : .off }
+        fanPresetView.update(selection.speed, capMode: selection.temperature != nil)
+        temperatureControlView.update(selection.temperature)
+        if let source = fanPresetView.icon.image { updateStatusFanIcon(source) }
         updateGuardVisibility()
     }
 
     // Native menu regression checks without authorization or hardware writes.
     func runMenuSelfTest() {
+        testingControls = true
         var checks = 0
         func check(_ condition: Bool, _ message: String) {
             checks += 1
@@ -522,59 +511,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         check(statusItem.button?.image === monitoringFanIcon, "Pending authorization must not brighten the fan before control is confirmed")
         pending = nil
         updateChecks()
-        for preset in FanMode.allCases {
-            check(modeItems[preset]?.image != nil, "Every preset needs a valid SF Symbol")
-            check(modeItems[preset]?.image?.isTemplate == true, "Icons must follow the system appearance")
-        }
-        let temperatureSetting = modeItems[.guardMode]!
-        let guardIndex = menu.index(of: temperatureSetting)
-        check(menu.item(at: guardIndex - 1) === modeItems[.full], "Set temperature must follow Full speed without a separator")
-        check(temperatureSetting.title.hasPrefix("Set temperature"), "Temperature control uses the requested menu label")
-        check(temperatureSetting.submenu === guardSettingsMenu && temperatureSetting.action != #selector(selectPreset(_:)), "Set temperature must open the submenu rather than run a closing action")
-        check(temperatureSetting.attributedTitle?.string == "Set temperature\t80°C", "The main menu must include the current target")
-        let targetParagraph = temperatureSetting.attributedTitle?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
-        check(targetParagraph?.tabStops.first?.alignment == .right, "The target must be right-aligned")
-        check(menu.index(of: memoryItem) > guardIndex, "Memory must follow the entire temperature and fan-control section")
-        check(!menu.items.contains { $0.title == "Enable fan controls…" }, "Fan authorization must happen on demand without a separate menu action")
-        check(!temperatureSetting.isHidden && authProcess == nil, "Temperature settings stay accessible without activating control")
-        check(guardOptionItems.allSatisfy { $0.menu === guardSettingsMenu }, "Guard options must belong to the settings submenu")
-        check(!menu.items.contains { $0 === curveMenuItem || $0 === rampItem || $0 === controlTempItem || $0.view === targetSlider.superview || $0.view === maxSlider.superview }, "Guard settings and readings must not clutter the main menu")
+        checks += FanPresetView.runSelfTest()
+        checks += TemperatureControlView.runSelfTest()
+        check(fanPresetItem.view === fanPresetView && temperatureControlItem.view === temperatureControlView,
+              "Speed and Temperature are inline controls")
+        check(menu.items.compactMap { $0.view }.flatMap { $0.subviews }.filter { $0 is NSSlider }.count == 2,
+              "The temperature group has exactly two sliders")
+        check(temperatureControlItem.submenu == nil, "Temperature no longer has a submenu")
+        check(menu.index(of: temperatureControlItem) == menu.index(of: fanPresetItem) + 1,
+              "Temperature follows the shared speed slider")
+        check(menu.index(of: curveMenuItem) == menu.index(of: memoryItem) - 2 && curveMenuItem.submenu != nil,
+              "Curve is the last item in the temperature group")
+        check(!menu.items.contains { FanMode.sliderModes.map(\.title).contains($0.title) || $0.title.hasPrefix("Set temperature") },
+              "The old preset rows and temperature submenu entry are removed")
+        check(selection.temperature == nil && selection.speed == .auto && authProcess == nil,
+              "Launch starts with Temperature Off and automatic fans")
         for preset in FanMode.allCases {
             mode = preset
+            selection = FanControlSelection(speed: preset == .guardMode ? .high : preset,
+                                            temperature: preset == .guardMode ? settings.target : nil)
             hasControlTemperature = true
             updateChecks()
-            let guardSelected = preset == .guardMode
-            check(!temperatureSetting.isHidden, "Temperature settings stay accessible with every fan preset")
-            check(controlTempItem.isHidden == !guardSelected, "Only Guard shows filtered temperature")
-            check(modeItems[preset]?.state == .on, "The confirmed preset remains checked")
-            check(statusItem.button?.image === fanIcon, "Confirmed presets must restore full fan-icon opacity")
-            check(!memoryItem.isHidden && !pressureItem.isHidden, "Memory stays visible with every fan preset")
+            check(controlTempItem.isHidden == (preset != .guardMode), "Only temperature control shows filtered temperature")
+            check(fanPresetView.capMode == (preset == .guardMode) && fanPresetView.selection == selection.speed,
+                  "The speed slider reflects the selected speed or cap")
+            check(statusItem.button?.image === fanIcon, "Confirmed control restores full icon opacity")
+            let expectedGauge = FanPresetView.gaugeImage(value: Double(selection.speed.sliderIndex!) / 4)
+            check(abs(meanAlpha(fanIcon) - meanAlpha(makeFanIcon(source: expectedGauge, opacity: 1))) < 0.001,
+                  "The menu-bar icon follows the selected gauge rather than a static fan")
         }
-        mode = .auto
-        pending = .guardMode
-        updateGuardVisibility()
-        check(!controlTempItem.isHidden, "Filtered temperature appears while temperature control is requested")
+        connected = true
+        refreshing = true // Prevent hardware IPC in these tests.
+        resetSelection()
+        for speed in FanMode.sliderModes {
+            speedChanged(speed)
+            check(pending == speed && selection.temperature == nil, "With Temperature Off, speed selects its normal preset")
+        }
+        speedChanged(.high)
+        temperatureChanged(55)
+        check(selection.mode == .guardMode && settings.target == 55 && settings.speedCap == .high && debounce != nil,
+              "A temperature enables control using the shared speed cap")
+        debounce?.perform()
+        check(pending == .guardMode && refreshRequested, "Temperature changes request guard control after debounce")
+        for speed in FanMode.sliderModes.dropFirst() {
+            speedChanged(speed)
+            check(pending == .guardMode && settings.speedCap == speed && selection.temperature == 55,
+                  "Changing any enabled speed stop in cap mode preserves temperature control")
+        }
+        speedChanged(.auto)
+        check(selection.speed == .full && settings.speedCap == .full && pending == .guardMode,
+              "Automatic cannot be selected while temperature control is active")
+        temperatureChanged(nil)
+        check(pending == .full && selection.mode == .full && !fanPresetView.capMode,
+              "Temperature Off resumes the selected fixed-speed preset")
+        speedChanged(.auto)
+        check(pending == .auto, "Speed zero with Temperature Off restores macOS automatic control")
         pending = nil
-        inFlightMode = .guardMode
-        updateGuardVisibility()
-        check(!controlTempItem.isHidden, "Filtered temperature stays visible while applying")
-        pending = .high
-        updateGuardVisibility()
-        check(controlTempItem.isHidden, "Selecting High hides the filtered temperature immediately")
+        refreshRequested = false
+        temperatureChanged(50)
+        check(selection.speed == .full && settings.speedCap == .full && fanPresetView.slider.minValue == 1,
+              "Enabling temperature from Auto selects a full hardware cap, not a full-speed preset")
+        temperatureChanged(nil)
+        speedChanged(.auto)
         pending = nil
-        inFlightMode = nil
+        selectCurve(curveItems[.linear]!)
+        check(pending == nil && debounce == nil && selection.temperature == nil,
+              "Changing Curve while Off must not enable temperature control")
+        temperatureChanged(40)
+        selectCurve(curveItems[.smoothstep]!)
+        debounce?.perform()
+        check(pending == .guardMode && settings.curve == .smoothstep && settings.target == 40,
+              "Curve changes apply to active temperature control")
+        pending = .auto
+        resetSelection()
+        check(selection.temperature == nil && selection.speed == .auto && debounce == nil,
+              "Sleep, wake or authorization loss clears session control and queued edits")
+        pending = nil
         mode = nil
         updateChecks()
-        check(controlTempItem.isHidden && !temperatureSetting.isHidden, "Losing authorization hides filtered temperature but keeps settings accessible")
-        connected = true
-        refreshing = true
-        requestPreset(.guardMode)
-        check(pending == .guardMode && refreshRequested, "Editing temperature settings must request temperature control")
-        pending = nil
         connected = false
         refreshing = false
         refreshRequested = false
-        check(statusItem.button?.image === monitoringFanIcon, "Losing fan control must dim the fan icon again")
+        check(statusItem.button?.image === monitoringFanIcon, "Losing fan control dims only the icon")
         check(menu.items.contains { $0.title == "About Minilet" && $0.action == #selector(showWelcome) && $0.target === self }, "About Minilet opens the welcome window")
         check(!menu.items.contains { $0.title == "Buy me a coffee" }, "The main menu must not contain the coffee link")
         check(!applicationShouldTerminateAfterLastWindowClosed(NSApp), "Closing welcome must not quit the menu-bar app")
