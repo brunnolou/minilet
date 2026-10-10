@@ -117,7 +117,8 @@ apps. Sampling stops when the submenu closes.
 
 Two rows of tiny squares sit below the RAM bar, without widening the menu-bar
 item. Each row has eight 3×3-point squares with 1-point gaps, centered within the
-RAM bar's 32-point width. RAM is 4 points high; the whole stack is 12 points high.
+RAM bar's 32-point width. RAM is 4 points high, with 2-point vertical gaps
+between rows. The 14-point stack is centered beside the temperature digits.
 CPU is the middle row; GPU is the bottom row.
 
 CPU cores overlap across the row. Each core contributes 1/core-count opacity

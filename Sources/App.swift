@@ -646,8 +646,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         check(MemoryVisuals.color(.warning).isEqual(NSColor.systemYellow), "Warning pressure must use yellow")
         check(MemoryVisuals.color(.critical).isEqual(NSColor.systemRed), "Critical pressure must use red")
         let fullBar = MemoryVisuals.usageBar(fraction: 1, pressure: .normal)
-        check(fullBar.size.height == 4 && barAttachment()?.bounds == NSRect(x: 0, y: -5, width: 32, height: 12),
-              "The RAM bar is 4px tall and the complete CPU/GPU stack is 12px tall")
+        let meterBounds = barAttachment()?.bounds ?? .zero
+        let digitCenter = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular).capHeight / 2
+        check(fullBar.size.height == 4 && meterBounds.size == NSSize(width: 32, height: 14)
+              && abs(meterBounds.midY - digitCenter) <= 0.25,
+              "The 4px RAM bar and wider row gaps form a stack centered on the temperature digits")
         checks += StatusMeters.runSelfTest()
         latestProcessors = ProcessorSnapshot(cpu: [1] + Array(repeating: 0, count: 11), gpu: 0.5)
         updateStatusDisplay()

@@ -68,13 +68,16 @@ enum MemoryVisuals {
     }
 
     static func statusTitle(temperature: Double?, memory: MemorySnapshot?, processors: ProcessorSnapshot? = nil) -> NSAttributedString {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         let result = NSMutableAttributedString(string: " \(MemoryFormat.temperatureTitle(temperature))  ",
-            attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular),
+            attributes: [.font: font,
                          .foregroundColor: NSColor.labelColor])
         let attachment = NSTextAttachment()
         attachment.image = StatusMeters.image(memory: memory, processors: processors)
-        // Preserve the RAM bar's center while the whole stack gets shorter.
-        attachment.bounds = NSRect(x: 0, y: -5, width: 32, height: 12)
+        // Align the entire stack with the visible digits, not their baseline.
+        // Half-point snapping keeps square edges crisp on Retina displays.
+        let offset = ((font.capHeight - StatusMeters.height) / 2 * 2).rounded() / 2
+        attachment.bounds = NSRect(x: 0, y: offset, width: StatusMeters.width, height: StatusMeters.height)
         result.append(NSAttributedString(attachment: attachment))
         return result
     }
