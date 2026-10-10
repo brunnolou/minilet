@@ -648,9 +648,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let fullBar = MemoryVisuals.usageBar(fraction: 1, pressure: .normal)
         let meterBounds = barAttachment()?.bounds ?? .zero
         let digitCenter = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular).capHeight / 2
-        check(fullBar.size.height == 4 && meterBounds.size == NSSize(width: 32, height: 14)
+        check(fullBar.size.height == 4 && meterBounds.size == NSSize(width: 32, height: 16)
               && abs(meterBounds.midY - digitCenter) <= 0.25,
-              "The 4px RAM bar and wider row gaps form a stack centered on the temperature digits")
+              "RAM and padded CPU/GPU backgrounds form a stack centered on the temperature digits")
         checks += StatusMeters.runSelfTest()
         latestProcessors = ProcessorSnapshot(cpu: [1] + Array(repeating: 0, count: 11), gpu: 0.5)
         updateStatusDisplay()

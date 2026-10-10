@@ -119,15 +119,22 @@ Each meter has its own style: solid RAM, square CPU and diagonal GPU. CPU uses
 eight 3×3-point squares with 1-point gaps. GPU uses smooth 2-point-wide lines at
 45°, with 1-point gaps measured perpendicular to the lines. Both rows stay
 within the RAM bar's 32-point width. RAM is 4 points high; CPU and GPU are each
-3 points high, with 2-point vertical gaps between rows. The 14-point stack is
+3 points high with rounded outer ends. Soft, rounded backgrounds extend 0.5
+points around CPU and GPU, with a subtle 0.5-point edge blur. Two-point gaps
+separate the backgrounds and RAM. The 16-point stack is
 centered beside the temperature digits. CPU is the middle row; GPU is the bottom
 row.
 
-CPU cores overlap across the row. Each core contributes 1/core-count opacity
-along its own usage-length prefix. If one of twelve cores is at 100%, the whole
-row has 1/12 opacity. Fractional edge squares preserve usage between square
-boundaries. Unused squares
+CPU cores overlap across the row. A logarithmic opacity curve makes several
+overlapping cores easier to see, while zero and single-core contributions keep
+their original opacity. One of twelve cores at 100% still gives a full-width row
+at 1/12 opacity; six overlapping cores give about 74%, and ten give about 93%.
+When more than one core is active, the first square counts active cores, even at
+very low utilization. Later squares follow each core's usage-length prefix,
+including fractional edges. Thus light activity on most cores makes the first
+square nearly opaque without extending the rest of the row. Unused squares
 use the inverse light/dark theme color so the row's full length stays visible.
+The tooltip continues to report actual mean CPU utilization, not boosted opacity.
 
 CPU uses per-core Mach counter deltas, not boot-to-date averages. GPU uses the
 AGX driver's aggregate Device Utilization percentage, not invented per-GPU-core
@@ -260,7 +267,7 @@ Run just the tests:
 ```
 
 There are 845 controller/IPC checks, 47 memory checks, 28 app-memory grouping/identity
-checks, 51 processor checks and 297 native menu/welcome checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
+checks, 76 processor checks and 321 native menu/welcome checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
 monitoring without writes, presets, cleanup failures, icons and conditional menu

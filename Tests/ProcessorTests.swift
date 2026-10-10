@@ -29,19 +29,44 @@ processorCheck(processorSampler.sample([laterTicks], at: 13) == nil, "Sleep rese
 processorCheck(processorSampler.sample([], at: 14) == nil && processorSampler.sample([laterTicks], at: .nan) == nil,
                "Invalid CPU samples stay unavailable")
 for load in [0.0, 0.1, 0.5, 1] {
-    let row = ProcessorTiles.opacities(Array(repeating: load, count: 12))
+    let row = ProcessorTiles.linearOpacities(Array(repeating: load, count: 12))
     processorCheck(row.count == 8, "CPU has eight squares")
     processorCheck(abs(row.reduce(0, +) / Double(ProcessorTiles.count) - load) < 0.000001, "Fractional edge squares preserve the average area")
     processorCheck(zip(row, row.dropFirst()).allSatisfy { $0 >= $1 }, "Overlapped CPU prefixes never increase towards the right")
 }
 let tenPercentRow = ProcessorTiles.opacities(Array(repeating: 0.1, count: 12))
-processorCheck(abs(tenPercentRow[0] - 0.8) < 0.000001 && tenPercentRow.dropFirst().allSatisfy { $0 == 0 },
-               "Ten-percent CPU usage occupies only the first fractional square in an eight-square row")
+processorCheck(tenPercentRow[0] == 1 && tenPercentRow.dropFirst().allSatisfy { $0 == 0 },
+               "Light activity on every core makes the first square fully opaque without extending the row")
 let singleCoreRow = ProcessorTiles.opacities([1] + Array(repeating: 0, count: 11))
 processorCheck(singleCoreRow.allSatisfy { abs($0 - 1 / 12.0) < 0.000001 }, "One fully busy core gives a full-width row at 1/12 alpha")
 let splitRow = ProcessorTiles.opacities([1, 0.5, 0, 0])
-processorCheck(splitRow[0] == 0.5 && splitRow[7] == 0.25, "Mixed cores create layered opacity, not an averaged progress bar")
-for invalid: [Double]? in [nil, [], [.nan], [.infinity], [-0.1], [1.1]] {
+processorCheck(splitRow[0] == 0.625 && splitRow[7] == 0.25, "Mixed cores create layered opacity, not an averaged progress bar")
+let tinySingleCore = [0.001] + Array(repeating: 0.0, count: 11)
+processorCheck(ProcessorTiles.opacities(tinySingleCore) == ProcessorTiles.linearOpacities(tinySingleCore),
+               "A single lightly active core retains its original faint opacity")
+let manyTinyCores = ProcessorTiles.opacities(Array(repeating: 0.001, count: 12))
+processorCheck(manyTinyCores[0] == 1 && manyTinyCores.dropFirst().allSatisfy { $0 == 0 },
+               "The first square counts active cores even below one square's utilization range")
+processorCheck(ProcessorTiles.opacities(Array(repeating: 0.001, count: 11) + [0])[0] > 0.95,
+               "Activity on nearly all cores makes the leading square nearly opaque")
+for overlapping in [2, 3, 6, 10, 12] {
+    let raw = Double(overlapping) / 12
+    let alpha = ProcessorTiles.logarithmicOpacity(raw, cores: 12)
+    processorCheck(alpha >= raw && alpha <= 1, "Logarithmic overlap boosts density without exceeding full opacity")
+    processorCheck(ProcessorTiles.opacities(Array(repeating: 1, count: overlapping) + Array(repeating: 0, count: 12 - overlapping))
+        .allSatisfy { abs($0 - alpha) < 0.000001 }, "Logarithmic density applies along the whole overlapped prefix")
+}
+for raw in [0.0, 0.001, 1 / 12.0, 1] {
+    processorCheck(ProcessorTiles.logarithmicOpacity(raw, cores: 12) == raw, "Zero, weak, single-core and full opacity endpoints stay unchanged")
+}
+processorCheck(ProcessorTiles.logarithmicOpacity(0.4, cores: 1) == 0.4, "Single-core hardware has no logarithmic denominator")
+processorCheck(ProcessorTiles.logarithmicOpacity(.nan, cores: 12) == 0 && ProcessorTiles.logarithmicOpacity(0.5, cores: 0) == 0,
+               "Invalid opacity or core counts are safe")
+for load in [0.0, 0.001, 0.1, 0.5, 1] {
+    let row = ProcessorTiles.opacities(Array(repeating: load, count: 12))
+    processorCheck(zip(row, row.dropFirst()).allSatisfy { $0 >= $1 }, "Boosted prefixes still fade monotonically towards the right")
+}
+for invalid: [Double]? in [nil, [], [.nan], [.infinity], [-0.1], [1.1], [0.1, 1.1]] {
     processorCheck(ProcessorTiles.opacities(invalid).allSatisfy { $0 == 0 }, "Invalid usage uses only the track")
 }
 processorCheck(ProcessorTiles.opacities([1], count: 0).isEmpty && ProcessorTiles.opacities([1], count: -1).isEmpty,

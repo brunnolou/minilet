@@ -69,6 +69,25 @@ enum ProcessorTiles {
     static let count = 8
 
     static func opacities(_ usages: [Double]?, count: Int = count) -> [Double] {
+        var row = linearOpacities(usages, count: count)
+        guard !row.isEmpty, let usages = usages, !usages.isEmpty,
+              usages.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else { return row }
+        let active = usages.filter { $0 > 0 }.count
+        // The leading cell shows activity across cores, even below one cell's
+        // utilization range. A lone active core retains its original opacity.
+        if active > 1 { row[0] = max(row[0], Double(active) / Double(usages.count)) }
+        return row.map { logarithmicOpacity($0, cores: usages.count) }
+    }
+
+    static func logarithmicOpacity(_ opacity: Double, cores: Int) -> Double {
+        guard cores > 0, opacity.isFinite, (0...1).contains(opacity) else { return 0 }
+        let overlapping = opacity * Double(cores)
+        guard cores > 1, overlapping > 1 else { return opacity }
+        let single = 1 / Double(cores)
+        return min(1, max(opacity, single + (1 - single) * log(overlapping) / log(Double(cores))))
+    }
+
+    static func linearOpacities(_ usages: [Double]?, count: Int = count) -> [Double] {
         guard count > 0 else { return [] }
         guard let usages = usages, !usages.isEmpty,
               usages.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else {
