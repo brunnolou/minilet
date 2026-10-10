@@ -115,11 +115,13 @@ apps. Sampling stops when the submenu closes.
 
 ## CPU and GPU meters
 
-Two rows of tiny squares sit below the RAM bar, without widening the menu-bar
-item. Each row has eight 3×3-point squares with 1-point gaps, centered within the
-RAM bar's 32-point width. RAM is 4 points high, with 2-point vertical gaps
-between rows. The 14-point stack is centered beside the temperature digits.
-CPU is the middle row; GPU is the bottom row.
+Each meter has its own style: solid RAM, square CPU and diagonal GPU. CPU uses
+eight 3×3-point squares with 1-point gaps. GPU uses smooth 2-point-wide lines at
+45°, with 1-point gaps measured perpendicular to the lines. Both rows stay
+within the RAM bar's 32-point width. RAM is 4 points high; CPU and GPU are each
+3 points high, with 2-point vertical gaps between rows. The 14-point stack is
+centered beside the temperature digits. CPU is the middle row; GPU is the bottom
+row.
 
 CPU cores overlap across the row. Each core contributes 1/core-count opacity
 along its own usage-length prefix. If one of twelve cores is at 100%, the whole
@@ -258,7 +260,7 @@ Run just the tests:
 ```
 
 There are 845 controller/IPC checks, 47 memory checks, 28 app-memory grouping/identity
-checks, 51 processor checks and 288 native menu/welcome checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
+checks, 51 processor checks and 297 native menu/welcome checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
 monitoring without writes, presets, cleanup failures, icons and conditional menu
