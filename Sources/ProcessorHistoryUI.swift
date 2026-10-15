@@ -7,7 +7,7 @@ import AppKit
 enum ProcessorHistoryKind {
     case cpu, gpu
     var title: String { self == .cpu ? "CPU" : "GPU" }
-    func usage(_ value: ProcessorHistoryValue) -> Double? { self == .cpu ? value.cpu : value.gpu }
+    var iconName: String { self == .cpu ? "cpu" : "gpu" }
 }
 
 final class ProcessorHistoryView: NSView {
@@ -36,11 +36,7 @@ final class ProcessorHistoryView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        (title as NSString).draw(at: NSPoint(x: 17, y: 40), withAttributes: [
-            .font: NSFont.menuFont(ofSize: 0), .foregroundColor: NSColor.secondaryLabelColor])
-        let caption = "last 5 minutes" as NSString
-        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]
-        caption.draw(at: NSPoint(x: bounds.width - 17 - caption.size(withAttributes: attributes).width, y: 41), withAttributes: attributes)
+        HistoryHeader.draw(title: title, icon: kind.iconName, in: bounds)
         let track = NSRect(x: 17, y: 8, width: bounds.width - 34, height: 23)
         Self.drawHistory(history, kind: kind, in: track, until: ProcessInfo.processInfo.systemUptime)
     }
@@ -115,7 +111,8 @@ final class ProcessorHistoryView: NSView {
         }
         cpu.update(history: history, snapshot: ProcessorSnapshot(cpu: [0.25, 0.75], gpu: 0.75))
         gpu.update(history: history, snapshot: ProcessorSnapshot(cpu: [0.25, 0.75], gpu: 0.75))
-        check(cpu.title == "CPU   50%" && gpu.title == "GPU   75%", "History headers show actual current usage, not boosted top-bar opacity")
+        check(cpu.kind.iconName == "cpu" && gpu.kind.iconName == "gpu", "CPU and GPU use distinct monitor icons")
+        check(cpu.title == "CPU   50%" && gpu.title == "GPU   75%",  "History headers show actual current usage, not boosted top-bar opacity")
         check(cpu.history.samples.count == 150 && gpu.history.samples.count == 150, "Both views retain five-minute history")
         for kind in [ProcessorHistoryKind.cpu, .gpu] {
             for appearance in [NSAppearance.Name.aqua, .darkAqua] {

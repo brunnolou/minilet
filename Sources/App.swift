@@ -284,7 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func updateMemorySummary() {
         memorySummaryView.update(titles: [memoryItem.title, pressureItem.title, compressedItem.title, swapItem.title],
-                                 pressure: pressureItem.image)
+                                 pressure: pressureItem.image, usage: latestMemory?.compactUsage)
     }
 
     private func updateStatusDisplay() {
@@ -653,6 +653,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         check(title.contains("53°") && !title.contains("GB") && barAttachment() != nil, "Temperature and the usage bar must appear together without RAM text")
         check(memoryItem.title.contains("18.5/24 GB"), "Detailed RAM values remain in the menu")
+        check(pressureHistoryView.title == "Memory   18.5/24 GB", "Memory history header includes the current RAM usage")
         check(pressureItem.title.contains("Normal"), "Pressure must use macOS state")
         check(compressedItem.title.contains("2.0 GB") && swapItem.title.contains("3.0 GB"), "Menu must show compressed RAM and swap")
         check(pressureHistoryView.history.samples.count == 1, "History must not invent samples before launch")
@@ -679,6 +680,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
               "RAM and padded CPU/GPU backgrounds form a stack centered on the temperature digits")
         checks += StatusMeters.runSelfTest()
         checks += ProcessorHistoryView.runSelfTest()
+        checks += HistoryHeader.runSelfTest()
         applyProcessors(ProcessorSnapshot(cpu: [1] + Array(repeating: 0, count: 11), gpu: 0.5), at: ProcessInfo.processInfo.systemUptime)
         check(cpuHistoryItem.view === cpuHistoryView && gpuHistoryItem.view === gpuHistoryView
               && menu.items.firstIndex(of: cpuHistoryItem)! > menu.items.firstIndex(of: memoryItem)!,
@@ -704,8 +706,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
               "The full memory summary must open the apps submenu")
         check(!menu.items.contains { $0.title == "Apps using memory" || $0 === pressureItem || $0 === compressedItem || $0 === swapItem },
               "Memory has one hover block, not a separate apps row or individual data rows")
-        check(memorySummaryView.labels[0].stringValue == memoryItem.title && pressureHistoryView.superview === memorySummaryView,
-              "The hover block contains the readouts and five-minute history")
+        check(memorySummaryView.labels[0].stringValue == pressureItem.title && pressureHistoryView.superview === memorySummaryView
+              && pressureHistoryView.title == "Memory   Unavailable" && pressureHistoryView.frame.height == cpuHistoryView.frame.height,
+              "Memory uses the same icon/value/history header layout and preserves its detailed readouts")
         check(memorySummaryView.hitTest(NSPoint(x: 20, y: 10)) === memorySummaryView
               && memorySummaryView.hitTest(NSPoint(x: 50, y: 125)) === memorySummaryView,
               "History and readout hit areas belong to the same submenu item")

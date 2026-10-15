@@ -87,15 +87,20 @@ final class PressureHistoryView: NSView {
     var menuHighlighted = false {
         didSet { if oldValue != menuHighlighted { needsDisplay = true } }
     }
+    var usage = "Unavailable" {
+        didSet { updateAccessibility(); needsDisplay = true }
+    }
+    var title: String { "Memory   \(usage)" }
     var history = PressureHistory() {
-        didSet {
-            needsDisplay = true
-            setAccessibilityLabel("Memory pressure history, last five minutes. Latest state: \(history.samples.last?.pressure.title ?? "Unavailable").")
-        }
+        didSet { updateAccessibility(); needsDisplay = true }
+    }
+
+    private func updateAccessibility() {
+        setAccessibilityLabel("Memory \(usage). Pressure history, last five minutes. Latest state: \(history.samples.last?.pressure.title ?? "Unavailable").")
     }
 
     init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 42))
+        super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 60))
         toolTip = "Memory pressure over the last five minutes."
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
@@ -105,10 +110,8 @@ final class PressureHistoryView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let textColor: NSColor = menuHighlighted ? .selectedMenuItemTextColor : .secondaryLabelColor
-        ("Pressure · last 5 minutes" as NSString).draw(at: NSPoint(x: 17, y: 23),
-            withAttributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: textColor])
-        let track = NSRect(x: 17, y: 7, width: bounds.width - 34, height: 9)
+        HistoryHeader.draw(title: title, icon: "memorychip", in: bounds, highlighted: menuHighlighted)
+        let track = NSRect(x: 17, y: 8, width: bounds.width - 34, height: 23)
         let outline = MemoryVisuals.capsule(track)
         (menuHighlighted ? NSColor.selectedMenuItemTextColor.withAlphaComponent(0.16) : .quaternaryLabelColor).setFill()
         outline.fill()

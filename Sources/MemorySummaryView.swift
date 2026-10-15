@@ -5,8 +5,7 @@
 import AppKit
 
 final class MemorySummaryView: NSView {
-    let labels = (0..<4).map { _ in NSTextField(labelWithString: "") }
-    private let memoryIcon = NSImageView()
+    let labels = (0..<3).map { _ in NSTextField(labelWithString: "") }
     private let pressureIcon = NSImageView()
     private let arrow = NSImageView()
     let history: PressureHistoryView
@@ -16,27 +15,23 @@ final class MemorySummaryView: NSView {
 
     init(history: PressureHistoryView) {
         self.history = history
-        super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 150))
+        super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 138))
         autoresizingMask = [.width]
         for (index, label) in labels.enumerated() {
             label.font = .menuFont(ofSize: 0)
             label.textColor = .secondaryLabelColor
             label.autoresizingMask = [.width]
-            label.frame = NSRect(x: 36, y: CGFloat(120 - index * 24), width: 260, height: 20)
+            label.frame = NSRect(x: 36, y: CGFloat(56 - index * 24), width: 260, height: 20)
             addSubview(label)
         }
-        memoryIcon.image = NSImage(systemSymbolName: "memorychip", accessibilityDescription: nil)
-        memoryIcon.image?.isTemplate = true
-        memoryIcon.frame = NSRect(x: 16, y: 124, width: 14, height: 14)
-        addSubview(memoryIcon)
-        pressureIcon.frame = NSRect(x: 19, y: 103, width: 9, height: 9)
+        pressureIcon.frame = NSRect(x: 19, y: 60, width: 9, height: 9)
         addSubview(pressureIcon)
         arrow.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
         arrow.image?.isTemplate = true
-        arrow.frame = NSRect(x: 302, y: 69, width: 7, height: 12)
+        arrow.frame = NSRect(x: 302, y: 63, width: 7, height: 12)
         arrow.autoresizingMask = [.minXMargin]
         addSubview(arrow)
-        history.frame.origin = NSPoint(x: 0, y: 1)
+        history.frame.origin = NSPoint(x: 0, y: 78)
         history.autoresizingMask = [.width]
         // The parent block owns the hit area, including the history graphic.
         history.toolTip = nil
@@ -47,8 +42,9 @@ final class MemorySummaryView: NSView {
 
     required init?(coder: NSCoder) { fatalError("Use init(history:)") }
 
-    func update(titles: [String], pressure: NSImage?) {
-        for (label, title) in zip(labels, titles) { label.stringValue = title }
+    func update(titles: [String], pressure: NSImage?, usage: String?) {
+        history.usage = usage ?? "Unavailable"
+        for (label, title) in zip(labels, titles.dropFirst()) { label.stringValue = title }
         pressureIcon.image = pressure
         setAccessibilityLabel(titles.joined(separator: ". "))
         needsDisplay = true
@@ -113,7 +109,6 @@ final class MemorySummaryView: NSView {
         }
         let color: NSColor = highlighted ? .selectedMenuItemTextColor : .secondaryLabelColor
         labels.forEach { $0.textColor = color }
-        memoryIcon.contentTintColor = color
         arrow.contentTintColor = color
     }
 }

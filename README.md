@@ -140,7 +140,11 @@ The menu adds five-minute CPU and GPU histories below memory. CPU history uses
 square columns; GPU history uses diagonal hatching. Height shows actual sampled
 utilization, not the top bar's boosted CPU opacity. Each narrow time column keeps
 the highest sampled value in its interval so brief spikes remain visible. The
-headers show current usage. Missing readings leave gaps, coverage stops after
+headers show current usage. Memory, CPU and GPU share an icon/value header and
+right-aligned five-minute caption. Memory's pressure history sits directly under
+its header; pressure, compressed RAM and swap remain below it in the same app-memory
+hover block. CPU uses the native chip icon; GPU uses a graphics-card icon when a
+native GPU symbol is unavailable. Missing readings leave gaps, coverage stops after
 six seconds, and sleep clears both histories. The menu refreshes while open;
 the top bar continues to show live readings.
 
@@ -262,6 +266,7 @@ Sources/Processor.swift    Per-core CPU deltas, aggregate GPU readings and tile 
 Sources/ProcessorUI.swift  Compact RAM/CPU/GPU menu-bar stack
 Sources/ProcessorHistory.swift  Bounded five-minute CPU/GPU sampling history
 Sources/ProcessorHistoryUI.swift  Patterned CPU/GPU history plots in the menu
+Sources/HistoryHeaderUI.swift  Shared monitor headers and native/template icons
 Sources/MemoryUI.swift     Pressure indicators and timeline
 Sources/Welcome.swift      Welcome window, startup preference and support link
 Tests/ControllerTests.swift
@@ -280,7 +285,7 @@ Run just the tests:
 ```
 
 There are 845 controller/IPC checks, 47 memory checks, 28 app-memory grouping/identity
-checks, 76 processor checks, 15 processor-history checks and 337 native menu/welcome checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
+checks, 76 processor checks, 15 processor-history checks and 348 native menu/welcome checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
 monitoring without writes, presets, cleanup failures, icons and conditional menu
