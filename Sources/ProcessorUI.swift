@@ -74,7 +74,6 @@ enum StatusMeters {
     private static func drawGPU(_ usage: Double?) {
         let rect = NSRect(x: insetX, y: gpuY, width: width - insetX * 2, height: squareSize)
         let fraction = usage.flatMap { $0.isFinite && (0...1).contains($0) ? $0 : nil } ?? 0
-        let fillX = rect.minX + rect.width * CGFloat(fraction)
         // Stroke width and gaps are measured perpendicular to the 45-degree
         // lines. Horizontal spacing is therefore sqrt(2) times their sum.
         let period = (gpuStrokeWidth + gpuStrokeGap) * sqrt(2)
@@ -89,19 +88,31 @@ enum StatusMeters {
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current?.shouldAntialias = true
         MemoryVisuals.capsule(rect).addClip()
-        func stroke(in region: NSRect, color: NSColor) {
-            guard region.width > 0 else { return }
+        func stroke(in region: NSBezierPath, color: NSColor) {
             NSGraphicsContext.saveGraphicsState()
-            region.clip()
+            region.addClip()
             color.setStroke()
             lines.stroke()
             NSGraphicsContext.restoreGraphicsState()
         }
-        stroke(in: NSRect(x: rect.minX, y: rect.minY, width: fillX - rect.minX, height: rect.height),
-               color: NSColor.labelColor.withAlphaComponent(1))
-        stroke(in: NSRect(x: fillX, y: rect.minY, width: rect.maxX - fillX, height: rect.height),
-               color: NSColor.textBackgroundColor.withAlphaComponent(0.45))
+        stroke(in: gpuMask(in: rect, fraction: fraction, filled: true), color: NSColor.labelColor.withAlphaComponent(1))
+        stroke(in: gpuMask(in: rect, fraction: fraction, filled: false), color: NSColor.textBackgroundColor.withAlphaComponent(0.45))
         NSGraphicsContext.restoreGraphicsState()
+    }
+
+    static func gpuMask(in rect: NSRect, fraction: Double, filled: Bool) -> NSBezierPath {
+        // x+y is constant along each backslash stripe. Project progress onto
+        // that same axis, so a gap never exposes a tip of the following stripe.
+        let bottom = rect.minX + CGFloat(fraction) * (rect.width + rect.height)
+        let top = bottom - rect.height
+        let edge = filled ? rect.minX - rect.height : rect.maxX + rect.height
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: edge, y: rect.minY))
+        path.line(to: NSPoint(x: bottom, y: rect.minY))
+        path.line(to: NSPoint(x: top, y: rect.maxY))
+        path.line(to: NSPoint(x: edge, y: rect.maxY))
+        path.close()
+        return path
     }
 
     static func runSelfTest() -> Int {
@@ -131,6 +142,18 @@ enum StatusMeters {
         check(image(memory: nil, processors: oneCore).size == NSSize(width: 32, height: 16),
               "Rounded backplates and two-point row gaps fit in a centered sixteen-point stack")
         check(gpuStrokeWidth == 2 && gpuStrokeGap == 1, "GPU uses two-point vector strokes with one-point perpendicular gaps")
+        let gpuRect = NSRect(x: insetX, y: gpuY, width: width - insetX * 2, height: squareSize)
+        let mask = gpuMask(in: gpuRect, fraction: 0.5, filled: true)
+        let remainder = gpuMask(in: gpuRect, fraction: 0.5, filled: false)
+        let boundary = gpuRect.midX + gpuRect.midY
+        let maskRows: [CGFloat] = [gpuRect.minY + 0.25, gpuRect.midY, gpuRect.maxY - 0.25]
+        let angledMask = maskRows.allSatisfy { y -> Bool in
+            let x = boundary - y
+            let before = NSPoint(x: x - 0.25, y: y)
+            let after = NSPoint(x: x + 0.25, y: y)
+            return mask.contains(before) && !mask.contains(after) && remainder.contains(after)
+        }
+        check(angledMask, "GPU fill and remainder use complementary 45-degree masks")
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             let one = bitmap(oneCore, appearance: appearance)
             let empty = bitmap(noLoad, appearance: appearance)
@@ -140,6 +163,17 @@ enum StatusMeters {
                   "Light activity on every core renders the leading CPU square opaquely")
             check(abs((lightlyActive.colorAt(x: 10, y: 15)?.alphaComponent ?? 0) - 0.45) < 0.01,
                   "Light background activity does not extend CPU progress into later squares")
+            let nextStripe = gpuRect.minX + gpuStrokeWidth / 2 - gpuRect.height / 2 + gpuRect.maxY
+                + 3 * (gpuStrokeWidth + gpuStrokeGap) * sqrt(2)
+            let gapBoundary = nextStripe - (gpuStrokeWidth + gpuStrokeGap) * sqrt(2) / 2
+            let fractionInGap = Double((gapBoundary - gpuRect.minX - gpuRect.minY) / (gpuRect.width + gpuRect.height))
+            let gapProgress = bitmap(ProcessorSnapshot(cpu: nil, gpu: fractionInGap), appearance: appearance)
+            let stripeInset: CGFloat = gpuStrokeWidth * CGFloat(2).squareRoot() * 0.35
+            let tipPosition: CGFloat = nextStripe - stripeInset - (gpuRect.maxY - 0.25)
+            let tipX = Int(tipPosition * 2)
+            check(abs((gapProgress.colorAt(x: tipX, y: 25)?.alphaComponent ?? 1)
+                - (empty.colorAt(x: tipX, y: 25)?.alphaComponent ?? 0)) < 0.01,
+                  "A progress boundary in a gap does not light the next stripe's tip")
             let decorated = bitmap(oneCore, appearance: appearance, includeBackgrounds: true)
             let backgroundAlpha = decorated.colorAt(x: 7, y: 15)?.alphaComponent ?? 0
             check(backgroundPadding == 0.5 && trackHeight == 4, "Backplates extend half a point around three-point patterns")

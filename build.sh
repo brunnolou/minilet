@@ -30,9 +30,9 @@ mkdir -p .build
 # Combine sources into a Swift entry point without external files or packages.
 python3 - <<'PY'
 from pathlib import Path
-shared = ['Sources/Hardware.swift', 'Sources/Control.swift', 'Sources/Worker.swift', 'Sources/Memory.swift', 'Sources/AppMemory.swift', 'Sources/Processor.swift']
-entries = [('main.swift', ['Sources/MemoryUI.swift', 'Sources/ProcessorUI.swift', 'Sources/MemorySummaryView.swift', 'Sources/AppMemoryUI.swift', 'Sources/FanPresetUI.swift', 'Sources/Welcome.swift', 'Sources/App.swift']),
-           ('test-main.swift', ['Tests/ControllerTests.swift', 'Tests/MemoryTests.swift', 'Tests/AppMemoryTests.swift', 'Tests/ProcessorTests.swift'])]
+shared = ['Sources/Hardware.swift', 'Sources/Control.swift', 'Sources/Worker.swift', 'Sources/Memory.swift', 'Sources/AppMemory.swift', 'Sources/Processor.swift', 'Sources/ProcessorHistory.swift']
+entries = [('main.swift', ['Sources/MemoryUI.swift', 'Sources/ProcessorUI.swift', 'Sources/ProcessorHistoryUI.swift', 'Sources/MemorySummaryView.swift', 'Sources/AppMemoryUI.swift', 'Sources/FanPresetUI.swift', 'Sources/Welcome.swift', 'Sources/App.swift']),
+           ('test-main.swift', ['Tests/ControllerTests.swift', 'Tests/MemoryTests.swift', 'Tests/AppMemoryTests.swift', 'Tests/ProcessorTests.swift', 'Tests/ProcessorHistoryTests.swift'])]
 for name, files in entries:
     Path('.build', name).write_text('\n'.join(Path(f).read_text() for f in shared + files))
 PY

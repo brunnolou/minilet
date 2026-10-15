@@ -34,6 +34,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let processorReader = LiveProcessorReader()
     private var processorGeneration = 0
     private var latestProcessors: ProcessorSnapshot?
+    private var processorHistory = ProcessorHistory()
+    private let cpuHistoryView = ProcessorHistoryView(kind: .cpu)
+    private let gpuHistoryView = ProcessorHistoryView(kind: .gpu)
+    private let cpuHistoryItem = NSMenuItem(title: "CPU", action: nil, keyEquivalent: "")
+    private let gpuHistoryItem = NSMenuItem(title: "GPU", action: nil, keyEquivalent: "")
     private var memoryHistory = PressureHistory()
     private var latestMemory: MemorySnapshot?
     private var latestTemperature: Double?
@@ -200,6 +205,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pressureItem.image = MemoryVisuals.badge(.unknown)
         updateMemorySummary()
         menu.addItem(memoryItem)
+        for (item, view) in [(cpuHistoryItem, cpuHistoryView), (gpuHistoryItem, gpuHistoryView)] {
+            item.isEnabled = false
+            item.view = view
+            menu.addItem(item)
+        }
         let activity = NSMenuItem(title: "Open Activity Monitor…", action: #selector(openActivityMonitor), keyEquivalent: "")
         activity.target = self
         menu.addItem(activity)
@@ -208,6 +218,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func resetProcessorSampling() {
         processorGeneration += 1
         latestProcessors = nil
+        processorHistory.clear()
+        updateProcessorHistory()
         memoryQueue.async { [reader = processorReader] in reader.reset() }
         updateStatusDisplay()
     }
@@ -221,10 +233,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self = self else { return }
             let result = Result { try self.memoryReader.read() }
             let processors = self.processorReader.read()
+            let processorTime = ProcessInfo.processInfo.systemUptime
             RunLoop.main.perform(inModes: [.common, .eventTracking]) {
                 self.memoryRefreshing = false
                 guard !self.terminating, generation == self.processorGeneration else { return }
-                self.latestProcessors = processors
+                self.applyProcessors(processors, at: processorTime)
                 switch result {
                 case .success(let snapshot): self.applyMemory(snapshot)
                 case .failure(let error):
@@ -241,6 +254,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             }
         }
+    }
+
+    private func applyProcessors(_ snapshot: ProcessorSnapshot, at timestamp: Double) {
+        latestProcessors = snapshot
+        processorHistory.record(snapshot, at: timestamp)
+        updateProcessorHistory()
+    }
+
+    private func updateProcessorHistory() {
+        cpuHistoryView.update(history: processorHistory, snapshot: latestProcessors)
+        gpuHistoryView.update(history: processorHistory, snapshot: latestProcessors)
+        cpuHistoryItem.title = cpuHistoryView.title
+        gpuHistoryItem.title = gpuHistoryView.title
     }
 
     private func applyMemory(_ snapshot: MemorySnapshot) {
@@ -652,14 +678,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
               && abs(meterBounds.midY - digitCenter) <= 0.25,
               "RAM and padded CPU/GPU backgrounds form a stack centered on the temperature digits")
         checks += StatusMeters.runSelfTest()
-        latestProcessors = ProcessorSnapshot(cpu: [1] + Array(repeating: 0, count: 11), gpu: 0.5)
+        checks += ProcessorHistoryView.runSelfTest()
+        applyProcessors(ProcessorSnapshot(cpu: [1] + Array(repeating: 0, count: 11), gpu: 0.5), at: ProcessInfo.processInfo.systemUptime)
+        check(cpuHistoryItem.view === cpuHistoryView && gpuHistoryItem.view === gpuHistoryView
+              && menu.items.firstIndex(of: cpuHistoryItem)! > menu.items.firstIndex(of: memoryItem)!,
+              "CPU and GPU histories are embedded below memory without adding submenus")
+        check(cpuHistoryView.title == "CPU   8%" && gpuHistoryView.title == "GPU   50%"
+              && processorHistory.samples.count == 1,
+              "Independent processor sampling updates menu values and history together")
         updateStatusDisplay()
         check(statusItem.button?.toolTip?.contains("CPU: 8% · 12 cores") == true && statusItem.button?.toolTip?.contains("GPU: 50%") == true,
               "Processor meters expose their measured values in the existing tooltip")
         let generationBeforeReset = processorGeneration
         resetProcessorSampling()
-        check(latestProcessors == nil && processorGeneration > generationBeforeReset,
-              "Sleep and wake reject stale CPU/GPU results and reset their baseline")
+        check(latestProcessors == nil && processorGeneration > generationBeforeReset
+              && processorHistory.samples.isEmpty && cpuHistoryView.history.samples.isEmpty && gpuHistoryView.history.samples.isEmpty,
+              "Sleep and wake reject stale CPU/GPU results and reset histories and baselines")
         if let data = fullBar.tiffRepresentation, let bitmap = NSBitmapImageRep(data: data) {
             check((bitmap.colorAt(x: 0, y: 0)?.alphaComponent ?? 1) < 0.4, "Short filled bars must retain rounded, translucent antialiased corners")
             check((bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.alphaComponent ?? 0) > 0.95, "Full usage must fill the bar center")

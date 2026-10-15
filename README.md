@@ -136,6 +136,17 @@ square nearly opaque without extending the rest of the row. Unused squares
 use the inverse light/dark theme color so the row's full length stays visible.
 The tooltip continues to report actual mean CPU utilization, not boosted opacity.
 
+The menu adds five-minute CPU and GPU histories below memory. CPU history uses
+square columns; GPU history uses diagonal hatching. Height shows actual sampled
+utilization, not the top bar's boosted CPU opacity. Each narrow time column keeps
+the highest sampled value in its interval so brief spikes remain visible. The
+headers show current usage. Missing readings leave gaps, coverage stops after
+six seconds, and sleep clears both histories. The menu refreshes while open;
+the top bar continues to show live readings.
+
+The live GPU progress mask follows the same 45° angle as its lines, avoiding a
+bright tip of the next line when the boundary falls in a gap.
+
 CPU uses per-core Mach counter deltas, not boot-to-date averages. GPU uses the
 AGX driver's aggregate Device Utilization percentage, not invented per-GPU-core
 values. Both are sampled with RAM every two seconds without fan authorization.
@@ -249,6 +260,8 @@ Sources/Worker.swift       Session worker, Unix-socket IPC and watchdog
 Sources/Memory.swift       Unprivileged RAM, pressure, swap and history
 Sources/Processor.swift    Per-core CPU deltas, aggregate GPU readings and tile opacity
 Sources/ProcessorUI.swift  Compact RAM/CPU/GPU menu-bar stack
+Sources/ProcessorHistory.swift  Bounded five-minute CPU/GPU sampling history
+Sources/ProcessorHistoryUI.swift  Patterned CPU/GPU history plots in the menu
 Sources/MemoryUI.swift     Pressure indicators and timeline
 Sources/Welcome.swift      Welcome window, startup preference and support link
 Tests/ControllerTests.swift
@@ -267,7 +280,7 @@ Run just the tests:
 ```
 
 There are 845 controller/IPC checks, 47 memory checks, 28 app-memory grouping/identity
-checks, 76 processor checks and 321 native menu/welcome checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
+checks, 76 processor checks, 15 processor-history checks and 337 native menu/welcome checks. They run without fan writes or administrator authorization. Coverage includes curve bounds,
 continuous RPM control across temperature thresholds, filtering, elapsed-time
 speed limits, live option changes, emergency behavior, settings migration,
 monitoring without writes, presets, cleanup failures, icons and conditional menu
