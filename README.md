@@ -6,9 +6,7 @@ Presets for fixed speeds, live temperature and RPM readings, memory pressure, an
 
 Built with Swift and AppKit, without third-party dependencies.
 
-|Default|Set temperature|
-|--|--|
-|<img width="420" height="429" alt="image" src="https://github.com/user-attachments/assets/fe053427-8b00-416b-85c2-58d8c50bce66" />|<img width="447" height="668" alt="image" src="https://github.com/user-attachments/assets/c9181a79-f784-4bd6-9407-b3e39ed5ae14" />|
+<img width="707" height="865" alt="image" src="https://github.com/user-attachments/assets/9c8cfc19-aea5-483f-8377-2c4bc6288100" />
 
 ## Download and install
 
