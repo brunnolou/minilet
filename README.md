@@ -23,14 +23,14 @@ Requires an Apple Silicon Mac with fans and macOS 13 or newer.
 
 Keep only one installed copy so macOS doesn't open an older version. No developer tools or extra software are needed.
 
-<details>
-<summary>If macOS blocks the app</summary>
+> [!WARNING]
+> **macOS blocks will the app**
+> Minilet isn't verified by Apple.
+> After trying to open it,
+> go to **System Settings → Privacy & Security → Open Anyway** and confirm.
+>
+> <img width="480" alt="Allowing Minilet in macOS Privacy & Security" src="https://github.com/user-attachments/assets/82d4e47b-7f98-4df2-acbe-283cb8276606" />
 
-Minilet isn't verified by Apple. After trying to open it, go to **System Settings → Privacy & Security → Open Anyway** and confirm. Only approve a download you trust.
-
-<img width="320" alt="Allowing Minilet in macOS Privacy & Security" src="https://github.com/user-attachments/assets/82d4e47b-7f98-4df2-acbe-283cb8276606" />
-
-</details>
 
 ## Cooling controls
 
