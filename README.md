@@ -26,10 +26,12 @@ Keep only one installed copy so macOS doesn't open an older version. No develope
 > [!WARNING]
 > **macOS blocks will the app**
 > Minilet isn't verified by Apple.
+> 
 > After trying to open it,
 > go to **System Settings → Privacy & Security → Open Anyway** and confirm.
 >
 > <img width="480" alt="Allowing Minilet in macOS Privacy & Security" src="https://github.com/user-attachments/assets/82d4e47b-7f98-4df2-acbe-283cb8276606" />
+> If you think users of this app shouldn't see this warning, consider [supporting me](https://buymeacoffee.com/brunnolou) to help me pay for Apple dev account.
 
 
 ## Cooling controls
