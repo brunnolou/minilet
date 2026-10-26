@@ -1,4 +1,4 @@
-# <img src="Resources/Minilet.png" width="128" alt="Minilet app icon"> Minilet 
+# &nbsp;&nbsp;Minilet <br/><img src="Resources/Minilet.png" width="128" alt="Minilet app icon"> 
 
 A native tiny macOS menu-bar fan and memory monitor for Apple Silicon Macs with fans.
 
