@@ -12,6 +12,8 @@ final class MemorySummaryView: NSView {
     private var hoverArea: NSTrackingArea?
     private var hoverTimer: Timer?
     private var pointerInside = false
+    private var menuTracking = false
+    var isHoverPolling: Bool { hoverTimer?.isValid == true }
 
     init(history: PressureHistoryView) {
         self.history = history
@@ -68,13 +70,19 @@ final class MemorySummaryView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        setMenuTracking(menuTracking)
+    }
+
+    func setMenuTracking(_ tracking: Bool) {
+        menuTracking = tracking
         hoverTimer?.invalidate()
         hoverTimer = nil
         pointerInside = false
-        guard window != nil else { return }
-        // AppKit can consume mouse-enter events during menu tracking. Poll only
-        // while this view is attached to its menu window so the full area works.
+        guard tracking, window != nil else { return }
+        // Menu windows can retain their views after closing. Poll only during
+        // an actual root-menu session, not merely while attached to a window.
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.checkHover() }
+        timer.tolerance = 0.01
         hoverTimer = timer
         RunLoop.main.add(timer, forMode: .common)
         RunLoop.main.add(timer, forMode: .eventTracking)

@@ -124,14 +124,15 @@ final class ThermalReader {
         IOHIDEventSystemClientSetMatching(client, match as CFDictionary)
     }
 
-    func samples() -> [ThermalSample] {
+    func samples(nameMatching include: (String) -> Bool = { _ in true }) -> [ThermalSample] {
         let services = IOHIDEventSystemClientCopyServices(client) as [AnyObject]
         return services.compactMap { serviceObject in
             let service = serviceObject as IOHIDServiceClient
-            guard let event = IOHIDServiceClientCopyEvent(service, Self.temperatureEventType, 0, 0) else { return nil }
+            let name = IOHIDServiceClientCopyProperty(service, "Product" as CFString).map { String(describing: $0) } ?? "unknown"
+            guard include(name),
+                  let event = IOHIDServiceClientCopyEvent(service, Self.temperatureEventType, 0, 0) else { return nil }
             let temp = IOHIDEventGetFloatValue(event, Self.temperatureLevelField)
             guard temp.isFinite, temp > 0, temp < 125 else { return nil }
-            let name = IOHIDServiceClientCopyProperty(service, "Product" as CFString).map { String(describing: $0) } ?? "unknown"
             return ThermalSample(name: name, celsius: temp)
         }
     }

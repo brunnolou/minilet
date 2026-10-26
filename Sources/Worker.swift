@@ -12,7 +12,7 @@ final class LiveFanDevice: FanDevice {
     init() throws { smc = try SMC() }
 
     func temperature() throws -> Double {
-        let samples = thermal.samples().filter { $0.name.lowercased().contains("tdie") }
+        let samples = thermal.samples(nameMatching: { $0.lowercased().contains("tdie") })
         guard let temp = samples.map({ $0.celsius }).max() else {
             throw "No Apple Silicon die temperature sensors. Guard stopped."
         }
@@ -71,6 +71,30 @@ final class LiveFanDevice: FanDevice {
             try smc.setFan(fan, rpm: high)
         }
     }
+}
+
+// Confined to the UI's serial hardware queue. Reuse read-only connections,
+// discarding them after errors, wake, or transfer to the session controller.
+final class LiveFanMonitor {
+    private var device: FanDevice?
+    private let makeDevice: () throws -> FanDevice
+
+    init(makeDevice: @escaping () throws -> FanDevice = { try LiveFanDevice() }) {
+        self.makeDevice = makeDevice
+    }
+
+    func read() throws -> Reply {
+        do {
+            let reader = try device ?? makeDevice()
+            device = reader
+            return Reply(temperature: try reader.temperature(), rpms: try reader.speeds())
+        } catch {
+            reset()
+            throw error
+        }
+    }
+
+    func reset() { device = nil }
 }
 
 func socketAddress(_ path: String) throws -> sockaddr_un {
@@ -151,7 +175,7 @@ func queryWorker(path: String, request: Request) throws -> Reply {
     return try JSONDecoder().decode(Reply.self, from: receiveData(fd: fd))
 }
 
-func runWorker(session: String, uid: uid_t, parent: pid_t) throws {
+func runWorker(session: String, uid: uid_t, parent: pid_t, ready: () throws -> Void = {}) throws {
     guard getuid() == 0, uid > 0, parent > 1, UUID(uuidString: session) != nil else {
         throw "Invalid controller identity"
     }
@@ -199,6 +223,7 @@ func runWorker(session: String, uid: uid_t, parent: pid_t) throws {
         signals.append(source)
     }
     defer { for source in signals { source.cancel() } }
+    try ready() // Socket, identity checks, cleanup and signal handlers are ready.
     var lastContact = ProcessInfo.processInfo.systemUptime
     var nextTick = 0.0
     controller.tick() // Read only until an explicit selection.

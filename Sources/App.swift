@@ -17,6 +17,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var fanIcon: NSImage?
     private var monitoringFanIcon: NSImage?
+    private var statusFanSource: NSImage?
+    private struct StatusVisuals: Equatable {
+        let temperature: String
+        let used: UInt64?
+        let total: UInt64?
+        let pressure: MemoryPressure?
+        let cpu: [Double]?
+        let gpu: Double?
+        let appearance: String?
+    }
+    private var lastStatusVisuals: StatusVisuals?
     private let menu = NSMenu()
     private let temperatureItem = NSMenuItem(title: "Reading temperature…", action: nil, keyEquivalent: "")
     private let speedItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -31,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let appMemoryMenu = AppMemoryMenuController()
     private let memoryQueue = DispatchQueue(label: "Minilet.memory", qos: .utility)
     private let memoryReader = LiveMemoryReader()
+    private let hardwareQueue = DispatchQueue(label: "Minilet.hardware", qos: .utility)
+    private let monitor = LiveFanMonitor()
     private let processorReader = LiveProcessorReader()
     private var processorGeneration = 0
     private var latestProcessors: ProcessorSnapshot?
@@ -58,7 +71,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var socketPath: String { "/var/run/minilet-\(session).sock" }
     private var authProcess: Process?
     private var timer: Timer?
-    private var memoryTimer: Timer?
     private var settings = Settings()
     private var mode: FanMode?
     private var connected = false
@@ -92,13 +104,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             UserDefaults.standard.set(stored, forKey: "settings")
         }
         createMenu()
-        timer = Timer(timeInterval: 2, target: self, selector: #selector(refresh), userInfo: nil, repeats: true)
+        timer = Timer(timeInterval: 2, target: self, selector: #selector(pollMonitoring), userInfo: nil, repeats: true)
+        timer!.tolerance = 0.1
         RunLoop.main.add(timer!, forMode: .common)
-        memoryTimer = Timer(timeInterval: 2, target: self, selector: #selector(refreshMemory), userInfo: nil, repeats: true)
-        RunLoop.main.add(memoryTimer!, forMode: .common)
-        RunLoop.main.add(memoryTimer!, forMode: .eventTracking)
-        refreshMemory()
-        refresh()
+        RunLoop.main.add(timer!, forMode: .eventTracking)
+        pollMonitoring()
         let workspace = NSWorkspace.shared.notificationCenter
         sleepObserver = workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self = self else { return }
@@ -139,6 +149,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         if menu === self.menu { appMemoryMenu.refresh() }
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        if menu === self.menu { memorySummaryView.setMenuTracking(true) }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if menu === self.menu { memorySummaryView.setMenuTracking(false) }
     }
 
     private func createMenu() {
@@ -216,12 +234,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func resetProcessorSampling() {
+        hardwareQueue.async { self.monitor.reset() }
         processorGeneration += 1
         latestProcessors = nil
         processorHistory.clear()
         updateProcessorHistory()
         memoryQueue.async { [reader = processorReader] in reader.reset() }
         updateStatusDisplay()
+    }
+
+    @objc private func pollMonitoring() {
+        // One clock, independent queues. Slow fan IPC never delays other meters.
+        refreshMemory()
+        refresh()
     }
 
     @objc private func refreshMemory() {
@@ -289,20 +314,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func updateStatusDisplay() {
         updateMemorySummary()
-        statusItem.button?.attributedTitle = MemoryVisuals.statusTitle(temperature: latestTemperature, memory: latestMemory, processors: latestProcessors)
+        let visuals = StatusVisuals(temperature: MemoryFormat.temperatureTitle(latestTemperature),
+            used: latestMemory?.usedBytes, total: latestMemory?.totalBytes, pressure: latestMemory?.pressure,
+            cpu: latestProcessors?.cpu, gpu: latestProcessors?.gpu,
+            appearance: statusItem.button?.effectiveAppearance.name.rawValue)
+        if visuals != lastStatusVisuals {
+            statusItem.button?.attributedTitle = MemoryVisuals.statusTitle(temperature: latestTemperature, memory: latestMemory, processors: latestProcessors)
+            lastStatusVisuals = visuals
+        }
         let temperature = latestTemperature.map { String(format: "%.1f°C", $0) } ?? "Unavailable"
         let usage = latestMemory?.compactUsage ?? "Unavailable"
         let pressure = latestMemory?.pressure.title ?? "Unavailable"
         let cpu = latestProcessors?.cpuDescription ?? "Unavailable"
         let gpu = ProcessorSnapshot.percent(latestProcessors?.gpu)
-        statusItem.button?.toolTip = "Hottest die: \(temperature)\nMemory: \(usage)\nMemory pressure: \(pressure)\nCPU: \(cpu)\nGPU: \(gpu)\n\(hardwareStatus)"
-        statusItem.button?.setAccessibilityLabel("Minilet. Temperature \(temperature). Memory \(usage). Pressure \(pressure). CPU \(cpu). GPU \(gpu). \(hardwareStatus)")
+        let tooltip = "Hottest die: \(temperature)\nMemory: \(usage)\nMemory pressure: \(pressure)\nCPU: \(cpu)\nGPU: \(gpu)\n\(hardwareStatus)"
+        if statusItem.button?.toolTip != tooltip { statusItem.button?.toolTip = tooltip }
+        let label = "Minilet. Temperature \(temperature). Memory \(usage). Pressure \(pressure). CPU \(cpu). GPU \(gpu). \(hardwareStatus)"
+        if statusItem.button?.accessibilityLabel() != label { statusItem.button?.setAccessibilityLabel(label) }
     }
 
     private func updateStatusFanIcon(_ source: NSImage) {
-        fanIcon = makeFanIcon(source: source, opacity: 1)
-        monitoringFanIcon = makeFanIcon(source: source, opacity: 0.5)
-        statusItem.button?.image = mode == nil ? monitoringFanIcon : fanIcon
+        if statusFanSource !== source {
+            statusFanSource = source
+            fanIcon = makeFanIcon(source: source, opacity: 1)
+            monitoringFanIcon = makeFanIcon(source: source, opacity: 0.5)
+        }
+        let image = mode == nil ? monitoringFanIcon : fanIcon
+        if statusItem.button?.image !== image { statusItem.button?.image = image }
     }
 
     private func makeFanIcon(source: NSImage, opacity: CGFloat) -> NSImage {
@@ -412,7 +450,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             var failure: String?
             do {
                 try process.run()
-                process.waitUntilExit() // Controller lives for this app session.
+                process.waitUntilExit() // Only approval/startup, not the fan session.
                 let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
                 if process.terminationStatus != 0 {
                     failure = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -420,16 +458,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } catch { failure = String(describing: error) }
             DispatchQueue.main.async {
                 guard let self = self else { return }
-                self.authProcess = nil
-                self.connected = false
-                self.mode = nil
-                self.pending = nil
-                self.inFlightMode = nil
-                self.resetSelection()
-                if !self.terminating {
-                    self.outputItem.title = failure == nil ? "Controller stopped · monitoring only" : "Authorization/controller failed"
-                    if let failure = failure, !failure.contains("-128") { self.showError(failure) }
-                }
+                self.completeAuthorization(failure: failure,
+                    workerReady: FileManager.default.fileExists(atPath: self.socketPath))
+            }
+        }
+    }
+
+    private func completeAuthorization(failure: String?, workerReady: Bool) {
+        authProcess = nil
+        if failure == nil && workerReady {
+            // The short launcher finished, not the session worker. Keep the
+            // requested selection and send it over the now-ready socket.
+            connected = true
+            if !terminating { refresh() }
+        } else {
+            connected = false
+            mode = nil
+            pending = nil
+            inFlightMode = nil
+            resetSelection()
+            if !terminating {
+                outputItem.title = "Authorization/controller failed"
+                let message = failure ?? "Controller stopped before becoming ready"
+                if !message.contains("-128") && !testingControls { showError(message) }
             }
         }
     }
@@ -454,17 +505,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 outputItem.isEnabled = false
             }
         }
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        hardwareQueue.async { [weak self] in
+            guard let self = self else { return }
             let result: Result<Reply, Error>
             if FileManager.default.fileExists(atPath: path) {
+                self.monitor.reset()
                 result = Result { try queryWorker(path: path, request: request) }
             } else {
-                result = Result {
-                    let device = try LiveFanDevice()
-                    return Reply(temperature: try device.temperature(), rpms: try device.speeds())
-                }
+                result = Result { try self.monitor.read() }
             }
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.refreshing = false
                 self.inFlightMode = nil
@@ -494,6 +544,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self.hardwareStatus = waitingForAuthorization ? self.outputItem.title : (reply.error ?? reply.output)
                     if let error = reply.error, selected != nil { self.showError(error) }
                 case .failure(let error):
+                    let reason = String(describing: error)
+                    if reason == "Controller is not connected" || reason == "Controller stopped before replying" {
+                        // The short authorization process is no longer a worker
+                        // lifetime monitor. Socket disconnects now clear control.
+                        self.connected = false
+                        self.mode = nil
+                        self.pending = nil
+                        self.inFlightMode = nil
+                        self.resetSelection()
+                    }
                     self.latestTemperature = nil
                     self.temperatureItem.title = "Temperature unavailable"
                     self.outputItem.title = "\(error)"
@@ -526,6 +586,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         createMenu()
         check(statusItem.button?.image === monitoringFanIcon, "Monitoring starts with the dimmed fan icon")
         check(statusItem.button?.alphaValue == 1, "Only the fan icon dims, not the temperature or RAM bar")
+        let cachedFan = fanIcon
+        let cachedMonitoringFan = monitoringFanIcon
+        updateChecks()
+        check(fanIcon === cachedFan && monitoringFanIcon === cachedMonitoringFan,
+              "Unchanged fan gauges reuse their template images instead of redrawing them")
         check(fanIcon?.isTemplate == true && monitoringFanIcon?.isTemplate == true, "Both fan states must follow the menu-bar appearance")
         func meanAlpha(_ image: NSImage?) -> Double {
             guard let image = image,
@@ -584,8 +649,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             check(abs(meanAlpha(fanIcon) - meanAlpha(makeFanIcon(source: expectedGauge, opacity: 1))) < 0.001,
                   "The menu-bar icon follows the selected gauge rather than a static fan")
         }
-        connected = true
         refreshing = true // Prevent hardware IPC in these tests.
+        pending = .guardMode
+        selection = FanControlSelection(speed: .high, temperature: 50)
+        completeAuthorization(failure: nil, workerReady: true)
+        check(connected && pending == .guardMode && selection.temperature == 50 && refreshRequested,
+              "Short-lived authorization success preserves and immediately sends the pending control selection")
+        completeAuthorization(failure: "Cancelled -128", workerReady: false)
+        check(!connected && pending == nil && selection.temperature == nil,
+              "Cancelled authorization returns to monitoring without enabling fan control")
+        completeAuthorization(failure: nil, workerReady: false)
+        check(!connected && pending == nil && outputItem.title == "Authorization/controller failed",
+              "A worker that exits before contact is an error, not an endless pending selection")
+        connected = true
+        refreshRequested = false
         resetSelection()
         for speed in FanMode.sliderModes {
             speedChanged(speed)
@@ -651,6 +728,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let title = statusItem.button?.attributedTitle, title.length > 0 else { return nil }
             return title.attribute(.attachment, at: title.length - 1, effectiveRange: nil) as? NSTextAttachment
         }
+        let originalAttachment = barAttachment()
+        updateStatusDisplay()
+        check(barAttachment() === originalAttachment, "Unchanged readings do not rebuild the status title or image")
+        latestTemperature = 53.1
+        updateStatusDisplay()
+        check(barAttachment() === originalAttachment && statusItem.button?.toolTip?.contains("53.1°C") == true,
+              "Exact temperature tooltips still update without redrawing identical rounded digits")
+        latestTemperature = 53
+        updateStatusDisplay()
         check(title.contains("53°") && !title.contains("GB") && barAttachment() != nil, "Temperature and the usage bar must appear together without RAM text")
         check(memoryItem.title.contains("18.5/24 GB"), "Detailed RAM values remain in the menu")
         check(pressureHistoryView.title == "Memory   18.5/24 GB", "Memory history header includes the current RAM usage")
@@ -704,6 +790,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         check(!historyOutline.contains(NSPoint(x: 0.5, y: 0.5)) && historyOutline.contains(NSPoint(x: 50, y: 5)), "History uses a capsule outline for clipping its fills")
         check(memoryItem.submenu === appMemoryMenu.menu && memoryItem.view === memorySummaryView && memoryItem.isEnabled,
               "The full memory summary must open the apps submenu")
+        let retainedWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 138),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        retainedWindow.isReleasedWhenClosed = false
+        let hoverProbe = MemorySummaryView(history: PressureHistoryView())
+        retainedWindow.contentView = hoverProbe
+        check(!hoverProbe.isHoverPolling, "Attaching a hidden cached menu view does not start an idle hover timer")
+        hoverProbe.setMenuTracking(true)
+        check(hoverProbe.isHoverPolling, "Opening the menu enables full-block hover polling")
+        hoverProbe.setMenuTracking(false)
+        check(!hoverProbe.isHoverPolling && hoverProbe.window != nil,
+              "Closing the menu stops hover wakeups even when AppKit retains the window")
+        retainedWindow.contentView = nil
+        retainedWindow.close()
         check(!menu.items.contains { $0.title == "Apps using memory" || $0 === pressureItem || $0 === compressedItem || $0 === swapItem },
               "Memory has one hover block, not a separate apps row or individual data rows")
         check(memorySummaryView.labels[0].stringValue == pressureItem.title && pressureHistoryView.superview === memorySummaryView
@@ -737,7 +836,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !terminating else { return .terminateLater }
         terminating = true
         timer?.invalidate()
-        memoryTimer?.invalidate()
         debounce?.cancel()
         guard connected else { return .terminateNow }
         let path = socketPath
@@ -779,13 +877,17 @@ if CommandLine.arguments.dropFirst().first == "--memory-snapshot" {
     }
 }
 
-if CommandLine.arguments.dropFirst().first == "--worker" {
+if let command = CommandLine.arguments.dropFirst().first, ["--worker", "--session-worker"].contains(command) {
     do {
         guard CommandLine.arguments.count == 5,
               let uid = uid_t(CommandLine.arguments[3]), let pid = pid_t(CommandLine.arguments[4]) else {
             throw "Invalid worker arguments"
         }
-        try runWorker(session: CommandLine.arguments[2], uid: uid, parent: pid)
+        if command == "--worker" {
+            try launchSessionWorker(session: CommandLine.arguments[2], uid: uid, parent: pid)
+        } else {
+            try runWorker(session: CommandLine.arguments[2], uid: uid, parent: pid, ready: WorkerLaunch.notifyReady)
+        }
         exit(0)
     } catch {
         fputs("Minilet: \(error)\n", stderr)
